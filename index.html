@@ -50,7 +50,31 @@ header{
   background:var(--panel);
   border-bottom:1px solid var(--line);
   flex-shrink:0;
+  max-height:300px;
+  overflow:hidden;
+  transition:max-height .28s ease, padding .28s ease, opacity .2s ease, border-color .28s ease;
 }
+header.collapsed{
+  max-height:0;
+  padding-top:0;
+  padding-bottom:0;
+  opacity:0;
+  border-bottom-color:transparent;
+}
+.header-toggle-bar{
+  flex-shrink:0;
+  display:flex;
+  justify-content:center;
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
+}
+.header-toggle-bar button{
+  background:none;border:none;color:var(--text-dim);
+  padding:3px 22px;font-size:11px;cursor:pointer;
+  line-height:1;
+}
+.header-toggle-bar button:hover{color:var(--text);}
+.header-toggle-bar button:focus-visible{outline:2px solid var(--gold);}
 .brand{
   display:flex;
   align-items:center;
@@ -356,7 +380,8 @@ main.queue-hidden #player-section{flex:1 1 100%;}
   display:flex;
   align-items:center;
   gap:14px;
-  pointer-events:none;
+  pointer-events:auto;
+  cursor:pointer;
 }
 #now-playing-bar .thumb{width:64px;height:64px;border-radius:10px;object-fit:cover;border:2px solid var(--gold);}
 #now-playing-bar .info{min-width:0;}
@@ -371,7 +396,8 @@ main.queue-hidden #player-section{flex:1 1 100%;}
   display:flex;
   align-items:center;
   gap:10px;
-  pointer-events:none;
+  pointer-events:auto;
+  cursor:pointer;
 }
 .next-up-label{font-size:13px;font-weight:600;color:var(--teal);flex-shrink:0;}
 .next-up-title{font-size:15px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -815,8 +841,12 @@ main.queue-hidden #player-section{flex:1 1 100%;}
       <button class="icon-btn" id="btn-playlist"><span>📁</span><span class="label">เพลย์ลิสต์</span></button>
       <button class="icon-btn accent" id="btn-qr"><span>📱</span><span class="label">รีโมทมือถือ</span></button>
       <button class="icon-btn" id="btn-toggle-queue"><span>🗂️</span><span class="label">ซ่อนคิว</span></button>
+      <button class="icon-btn" id="btn-fullscreen"><span>⛶</span><span class="label">เต็มจอ</span></button>
     </div>
   </header>
+  <div class="header-toggle-bar">
+    <button id="btn-toggle-header" title="ซ่อน/แสดงเมนู">▲</button>
+  </div>
 
   <main id="main-content">
     <section id="player-section">
