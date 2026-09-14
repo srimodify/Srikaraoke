@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sri Karaoke — รีโมท</title>
+<meta name="theme-color" content="#1B1533">
+<link rel="manifest" href="manifest-remote.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0F0C1E;
+  --panel:#1B1533;
+  --panel-2:#241C42;
+  --gold:#FFC857;
+  --magenta:#FF3D81;
+  --teal:#2EE6D6;
+  --text:#F5F1FA;
+  --text-dim:#B8AFD1;
+  --line:#352A5C;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;margin:0;}
+body{
+  background:var(--ink);
+  color:var(--text);
+  font-family:'Sarabun',sans-serif;
+  min-height:100dvh;
+  display:flex;
+  flex-direction:column;
+}
+h1,h2,h3,.display{font-family:'Kanit',sans-serif;}
+input,button{font-family:inherit;}
+
+/* ---- connect screen ---- */
+#connect-screen{
+  flex:1;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:16px;padding:32px 24px;text-align:center;
+}
+#connect-screen .brand-mark{width:76px;height:76px;border-radius:50%;background:var(--panel-2);
+  display:flex;align-items:center;justify-content:center;font-size:32px;margin-bottom:6px;object-fit:cover;}
+#connect-screen h1{margin:0;font-size:26px;}
+#connect-screen h1 span{color:var(--magenta);}
+#connect-screen p{color:var(--text-dim);font-size:14px;max-width:320px;line-height:1.6;margin:0;}
+.code-input-row{display:flex;gap:8px;margin-top:8px;width:100%;max-width:320px;}
+.code-input-row input{
+  flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:12px;padding:14px;font-size:18px;text-align:center;letter-spacing:3px;
+  font-family:'Kanit',sans-serif;
+}
+.code-input-row input:focus-visible{outline:2px solid var(--gold);}
+#connect-screen button.go{
+  background:var(--gold);color:#1B1533;border:none;border-radius:12px;
+  padding:14px 22px;font-weight:600;font-size:15px;cursor:pointer;
+}
+#connect-status{font-size:13px;color:var(--teal);min-height:18px;}
+
+/* ---------- https warning / reconnect banner ---------- */
+#https-warning{
+  display:none;
+  background:#3A2A0F;border-bottom:1px solid #6B4E1A;color:var(--gold);
+  font-size:12px;text-align:center;padding:7px 14px;flex-shrink:0;
+}
+#reconnect-banner{
+  display:none;
+  background:#3A0F1F;border-bottom:1px solid var(--magenta);color:#FF9FC1;
+  font-size:12px;text-align:center;padding:7px 14px;flex-shrink:0;
+}
+
+/* singing score popup (mirrors host, sized for mobile) */
+.score-popup-overlay{
+  display:none;
+  position:fixed;inset:0;z-index:400;
+  align-items:center;justify-content:center;
+  background:rgba(6,4,15,.8);
+  cursor:pointer;padding:20px;
+}
+.score-popup-box{
+  background:linear-gradient(160deg, #241C42 0%, #1B1533 100%);
+  border:1px solid var(--line);border-radius:22px;
+  padding:28px 26px;text-align:center;width:100%;max-width:320px;
+  box-shadow:0 20px 60px rgba(0,0,0,.5);
+  animation:score-pop .35s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes score-pop{ from{opacity:0;transform:scale(.8);} to{opacity:1;transform:scale(1);} }
+.score-stage-title{font-family:'Kanit',sans-serif;font-size:15px;color:var(--text-dim);margin-bottom:8px;}
+.score-singer{font-family:'Kanit',sans-serif;font-size:20px;font-weight:700;color:var(--text);}
+.score-song{font-size:12px;color:var(--text-dim);margin:3px 0 14px;}
+.score-number{font-family:'Kanit',sans-serif;font-weight:700;font-size:60px;line-height:1;text-shadow:0 0 24px currentColor;}
+.score-tier{font-family:'Kanit',sans-serif;font-size:16px;font-weight:600;margin-top:6px;}
+.leaderboard-list{display:flex;flex-direction:column;gap:7px;margin-top:4px;}
+.lb-row{
+  display:grid;grid-template-columns:22px 1fr auto;gap:10px;align-items:center;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;text-align:left;
+}
+.lb-rank{font-family:'Kanit',sans-serif;font-weight:700;font-size:15px;color:var(--text-dim);}
+.lb-row:nth-child(1) .lb-rank{color:var(--gold);}
+.lb-info{min-width:0;}
+.lb-name{font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lb-song{font-size:11px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lb-score{font-family:'Kanit',sans-serif;font-weight:700;font-size:17px;color:var(--gold);}
+
+.nickname-row{width:100%;max-width:320px;margin-top:10px;}
+.nickname-row input{
+  width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:12px;padding:12px 14px;font-size:14px;text-align:center;
+}
+
+/* ---- app screen ---- */
+#app-screen{display:none;flex-direction:column;flex:1;min-height:0;}
+header{
+  padding:14px 18px 10px;
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
+  flex-shrink:0;
+}
+header .top-row{display:flex;align-items:center;justify-content:space-between;}
+header h1{margin:0;font-size:18px;font-weight:600;}
+header h1 span{color:var(--magenta);}
+.room-pill{font-size:11px;background:var(--panel-2);border:1px solid var(--line);
+  padding:4px 10px;border-radius:999px;color:var(--gold);letter-spacing:1px;}
+#np-strip{
+  margin-top:10px;display:flex;align-items:center;gap:10px;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:8px 10px;
+}
+#np-strip img{width:44px;height:32px;object-fit:cover;border-radius:6px;}
+#np-strip .meta{flex:1;min-width:0;}
+#np-strip .meta .label{font-size:10px;color:var(--gold);}
+#np-strip .meta .title{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#np-indicator{
+  color:var(--gold);font-size:16px;flex-shrink:0;width:34px;height:34px;
+  display:flex;align-items:center;justify-content:center;
+}
+.role-badge{
+  font-size:11px;background:var(--gold);color:#1B1533;font-weight:700;
+  padding:3px 9px;border-radius:999px;letter-spacing:.3px;
+}
+#admin-transport{
+  display:flex;gap:8px;margin-top:10px;
+}
+#admin-transport button{
+  flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:10px;padding:10px 0;font-size:17px;cursor:pointer;
+}
+#admin-transport button:active{background:var(--line);}
+#admin-transport #btn-admin-playpause{background:var(--magenta);border-color:var(--magenta);color:#fff;}
+.tempo-row{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-top:10px;
+}
+.tempo-label{font-size:12px;color:var(--text-dim);}
+.tempo-control{display:flex;align-items:center;gap:8px;}
+.tempo-control button{
+  width:30px;height:30px;border-radius:8px;border:1px solid var(--line);
+  background:var(--panel-2);color:var(--text);font-size:16px;cursor:pointer;
+}
+.tempo-control span{
+  font-family:'Kanit',sans-serif;font-weight:600;font-size:13px;color:var(--gold);
+  min-width:46px;text-align:center;
+}
+#btn-mute.on{background:var(--magenta);border-color:var(--magenta);color:#fff;}
+.control-note{
+  font-size:12px;color:var(--text-dim);text-align:center;padding:16px 10px;
+}
+
+/* first-load disclaimer (self-contained modal styles — remote.html has no other popups) */
+.disclaimer-overlay{
+  position:fixed;inset:0;background:rgba(6,4,15,.92);
+  display:flex;align-items:center;justify-content:center;
+  z-index:500;padding:20px;
+}
+.disclaimer-overlay .modal{
+  background:var(--panel);border:1px solid var(--line);border-radius:20px;
+  padding:24px;max-width:480px;width:100%;max-height:86vh;overflow-y:auto;
+}
+.disclaimer-overlay .modal h2{margin:0 0 6px;font-size:20px;}
+.disclaimer-overlay .modal .sub{color:var(--text-dim);margin:0 0 16px;font-size:13px;}
+.disclaimer-body{max-height:45vh;overflow-y:auto;padding-right:6px;margin-bottom:16px;}
+.disclaimer-body h3{font-size:14px;margin:14px 0 8px;color:var(--gold);}
+.disclaimer-body h3:first-child{margin-top:0;}
+.disclaimer-body p{font-size:12.5px;color:var(--text-dim);line-height:1.65;margin:0 0 8px;}
+.disclaimer-body ul{margin:0 0 10px;padding-left:18px;}
+.disclaimer-body li{font-size:12.5px;color:var(--text-dim);line-height:1.65;margin-bottom:4px;}
+.disclaimer-body strong{color:var(--text);}
+.disclaimer-overlay .close-row{flex-wrap:wrap;}
+.disclaimer-overlay .icon-btn.info{border-color:var(--teal);color:var(--teal);}
+.disclaimer-overlay .close-row{display:flex;gap:12px;margin-top:4px;}
+.disclaimer-overlay .icon-btn{
+  flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:12px;padding:12px 0;font-size:14px;cursor:pointer;font-family:inherit;
+}
+.disclaimer-overlay .icon-btn.accent{background:var(--gold);color:#1B1533;border-color:var(--gold);font-weight:600;}
+
+main{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 90px;}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+
+/* search */
+.search-row{display:flex;gap:8px;margin-bottom:6px;}
+.search-row input{
+  flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:12px;padding:12px 14px;font-size:14px;
+}
+.search-row input:focus-visible{outline:2px solid var(--gold);}
+.search-row button{
+  background:var(--gold);color:#1B1533;border:none;border-radius:12px;
+  padding:0 16px;font-weight:600;cursor:pointer;
+}
+.hint{color:var(--text-dim);font-size:12px;margin:0 0 14px;line-height:1.6;}
+.hint a{color:var(--teal);}
+.result-card{
+  display:flex;gap:12px;background:var(--panel-2);border:1px solid var(--line);
+  border-radius:12px;padding:10px;margin-bottom:8px;align-items:center;
+}
+.result-card img{width:88px;height:64px;object-fit:cover;border-radius:8px;flex-shrink:0;}
+.result-card .meta{flex:1;min-width:0;}
+.result-card .meta .title{font-size:14px;font-weight:500;line-height:1.35;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.result-card .meta .channel{font-size:12px;color:var(--text-dim);margin-top:3px;}
+.result-card button{
+  background:var(--magenta);border:none;color:#fff;border-radius:10px;
+  padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0;
+}
+
+/* queue tab */
+.q-item{
+  display:flex;align-items:center;gap:10px;background:var(--panel-2);
+  border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:8px;
+}
+.q-item.playing{border-color:var(--gold);background:#2E2245;}
+.q-item img{width:52px;height:38px;object-fit:cover;border-radius:6px;}
+.q-item .idx{width:20px;text-align:center;font-size:12px;color:var(--text-dim);}
+.q-item.playing .idx{color:var(--gold);}
+.q-item .meta{flex:1;min-width:0;}
+.q-item .meta .title{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.q-item .meta .by{font-size:11px;color:var(--text-dim);}
+.q-item .actions{display:flex;gap:4px;}
+.q-item .actions button{
+  width:30px;height:30px;border-radius:8px;border:1px solid var(--line);
+  background:transparent;color:var(--text-dim);cursor:pointer;font-size:14px;
+}
+.empty-note{color:var(--text-dim);font-size:13px;text-align:center;padding:30px 10px;}
+
+/* playlists tab */
+.pl-row{
+  display:flex;align-items:center;gap:10px;background:var(--panel-2);border:1px solid var(--line);
+  border-radius:12px;padding:10px 12px;margin-bottom:8px;
+}
+.pl-row .name{flex:1;font-weight:500;font-size:14px;}
+.pl-row .count{color:var(--text-dim);font-size:12px;}
+.pl-row button{
+  border:1px solid var(--line);background:transparent;color:var(--text);
+  border-radius:8px;padding:6px 10px;cursor:pointer;font-size:12px;
+}
+
+/* settings tab */
+.field{margin-bottom:16px;}
+.field label{display:block;font-size:13px;color:var(--text-dim);margin-bottom:6px;}
+.field input{
+  width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:12px;padding:12px 14px;font-size:14px;
+}
+.field .save-btn{
+  margin-top:8px;background:var(--gold);color:#1B1533;border:none;border-radius:10px;
+  padding:10px 16px;font-weight:600;cursor:pointer;font-size:13px;
+}
+.settings-note{color:var(--text-dim);font-size:12px;line-height:1.7;}
+
+/* bottom nav */
+nav#tabbar{
+  position:fixed;left:0;right:0;bottom:0;
+  display:flex;
+  background:var(--panel);
+  border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom);
+  z-index:10;
+}
+nav#tabbar button{
+  flex:1;background:none;border:none;color:var(--text-dim);
+  padding:10px 0 8px;font-size:11px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+}
+nav#tabbar button .ic{font-size:19px;}
+nav#tabbar button.active{color:var(--gold);}
+nav#tabbar button:focus-visible{outline:2px solid var(--gold);}
+</style>
+</head>
+<body>
+
+<div class="disclaimer-overlay" id="disclaimer-modal">
+  <div class="modal disclaimer-box">
+    <h2 id="disclaimer-title">เกี่ยวกับเว็บไซต์</h2>
+    <p class="sub" id="disclaimer-subtitle">ข้อมูลเกี่ยวกับเว็บไซต์ ลิขสิทธิ์ และการใช้งาน</p>
+
+    <div class="disclaimer-body" id="disclaimer-panel-about">
+      <h3>เกี่ยวกับเว็บไซต์</h3>
+      <p>เว็บไซต์คาราโอเกะออนไลน์นี้เป็นแพลตฟอร์มที่ให้บริการค้นหาและเล่นเพลงคาราโอเกะผ่าน YouTube โดยใช้ YouTube IFrame Player API เพื่อแสดงวิดีโอคาราโอเกะจากช่องต่างๆ บน YouTube</p>
+      <p>ระบบนี้พัฒนาขึ้นเพื่อความสะดวกในการค้นหาและจัดการเพลงคาราโอเกะ พร้อมฟีเจอร์ต่างๆ เช่น การค้นหาด้วยเสียง การจัดการ Playlist และรีโมทคอนโทรลสำหรับควบคุมการเล่นเพลงจากระยะไกล</p>
+
+      <h3>ลิขสิทธิ์เพลง</h3>
+      <p><strong>⚠️ ข้อสำคัญเกี่ยวกับลิขสิทธิ์:</strong></p>
+      <ul>
+        <li>วิดีโอคาราโอเกะทั้งหมดที่แสดงบนเว็บไซต์นี้เป็นเนื้อหาจาก YouTube</li>
+        <li>เว็บไซต์นี้ <strong>ไม่ได้เป็นเจ้าของลิขสิทธิ์</strong> ของเพลงหรือวิดีโอใดๆ</li>
+        <li>ลิขสิทธิ์ของเพลงและวิดีโอเป็นของเจ้าของลิขสิทธิ์ดั้งเดิม (ศิลปิน, ค่ายเพลง, หรือช่อง YouTube ที่อัปโหลด)</li>
+        <li>เว็บไซต์นี้เป็นเพียงแพลตฟอร์มที่ช่วยให้ผู้ใช้ค้นหาและเข้าถึงวิดีโอคาราโอเกะที่เผยแพร่บน YouTube</li>
+      </ul>
+      <p><strong>📋 การใช้งาน:</strong></p>
+      <ul>
+        <li>เว็บไซต์นี้ใช้ YouTube IFrame Player API ตามข้อกำหนดและเงื่อนไขของ Google/YouTube</li>
+        <li>วิดีโอทั้งหมดถูกฝัง (embed) จาก YouTube โดยตรง ไม่มีการดาวน์โหลดหรือจัดเก็บวิดีโอบนเซิร์ฟเวอร์ของเว็บไซต์</li>
+        <li>การแสดงผลวิดีโอเป็นไปตามนโยบายและข้อกำหนดของ YouTube</li>
+        <li>หากเจ้าของลิขสิทธิ์ต้องการให้ลบวิดีโอใดๆ กรุณาติดต่อเจ้าของช่อง YouTube ที่อัปโหลดวิดีโอนั้น</li>
+      </ul>
+
+      <h3>โฆษณาจาก YouTube และรายได้</h3>
+      <p><strong>💰 รายได้และยอดวิว:</strong></p>
+      <ul>
+        <li>รายได้จากโฆษณา: รายได้ทั้งหมดจากโฆษณาที่แสดงในวิดีโอเป็นของเจ้าของช่อง YouTube ที่อัปโหลดวิดีโอนั้นๆ</li>
+        <li>ยอดวิว: ยอดวิวทั้งหมดจะถูกนับเข้าสู่ช่อง YouTube ต้นฉบับที่อัปโหลดวิดีโอ</li>
+        <li>เว็บไซต์นี้ไม่ได้รับรายได้: เว็บไซต์นี้ไม่ได้รับรายได้จากโฆษณาหรือยอดวิวใดๆ ทั้งสิ้น</li>
+        <li>รายได้ทั้งหมดเป็นไปตามเงื่อนไขและนโยบายของ YouTube Partner Program</li>
+      </ul>
+      <p><strong>📺 การแสดงโฆษณา:</strong></p>
+      <ul>
+        <li>โฆษณาที่แสดงในวิดีโอเป็นไปตามการตั้งค่าของเจ้าของช่อง YouTube</li>
+        <li>YouTube จะแสดงโฆษณาตามนโยบายและเงื่อนไขของ YouTube Partner Program</li>
+        <li>เว็บไซต์นี้ไม่สามารถควบคุมหรือจัดการโฆษณาที่แสดงในวิดีโอได้</li>
+        <li>การแสดงโฆษณาขึ้นอยู่กับการตั้งค่าของเจ้าของช่องและนโยบายของ YouTube</li>
+      </ul>
+      <p><strong>📌 สรุป:</strong></p>
+      <p>เว็บไซต์นี้เป็นเพียงแพลตฟอร์มที่ช่วยให้ผู้ใช้ค้นหาและเข้าถึงวิดีโอคาราโอเกะบน YouTube โดยไม่ได้รับรายได้ใดๆ จากโฆษณาหรือยอดวิว รายได้และยอดวิวทั้งหมดเป็นของเจ้าของช่อง YouTube ที่อัปโหลดวิดีโอต้นฉบับ</p>
+
+      <h3>ข้อกำหนดการใช้งาน</h3>
+      <ul>
+        <li>ผู้ใช้ต้องปฏิบัติตามข้อกำหนดและเงื่อนไขของ YouTube เมื่อใช้งานวิดีโอ</li>
+        <li>ห้ามใช้เว็บไซต์เพื่อวัตถุประสงค์ที่ผิดกฎหมายหรือละเมิดลิขสิทธิ์</li>
+        <li>เว็บไซต์สงวนสิทธิ์ในการเปลี่ยนแปลงหรือหยุดให้บริการได้โดยไม่ต้องแจ้งล่วงหน้า</li>
+        <li>ผู้ใช้ต้องรับผิดชอบต่อการใช้งานเว็บไซต์ของตนเอง</li>
+        <li>หากพบวิดีโอที่ละเมิดลิขสิทธิ์ กรุณาติดต่อเจ้าของช่อง YouTube ที่เกี่ยวข้อง</li>
+      </ul>
+    </div>
+
+    <div class="disclaimer-body" id="disclaimer-panel-features" style="display:none;">
+      <h3>🎤 ระบบเล่น &amp; ค้นหาเพลง</h3>
+      <ul>
+        <li>ค้นหาและเล่นเพลงคาราโอเกะจาก YouTube ได้ทันที ไม่ต้องดาวน์โหลดหรือติดตั้งอะไรเพิ่ม</li>
+        <li>ค้นหาได้จากรีโมทมือถือ พร้อมภาพตัวอย่างย่อ (thumbnail) ของผลการค้นหา</li>
+        <li>มีชิป "เพลงแนะนำ" ให้แตะค้นหาได้ทันทีโดยไม่ต้องพิมพ์</li>
+        <li>วางลิงก์ YouTube โดยตรงเพื่อเพิ่มเพลงได้ แม้ไม่ได้ตั้งค่า API Key</li>
+      </ul>
+      <h3>📋 การจัดการคิวเพลง</h3>
+      <ul>
+        <li>เพิ่ม/ลบเพลงในคิวได้จากมือถือ ดูลำดับคิวและเพลงที่กำลังเล่นแบบเรียลไทม์</li>
+        <li>ถ้าเชื่อมต่อด้วยสิทธิ์แอดมิน จะจัดเรียงคิว แทรกเล่นถัดไป และเปิดเพลย์ลิสต์ได้ด้วย</li>
+      </ul>
+      <h3>📱 รีโมทมือถือผ่าน QR Code</h3>
+      <ul>
+        <li>สแกน QR เพื่อควบคุมจากมือถือได้พร้อมกันหลายเครื่อง</li>
+        <li>แยกสิทธิ์ 2 ระดับ: รีโมทแอดมิน (คุมได้ทุกอย่างเหมือนจอหลัก) และรีโมทผู้ใช้ทั่วไป (เพิ่ม/ลบเพลง ปรับจังหวะ-เสียง)</li>
+        <li>ห้องอาจถูกล็อกด้วยรหัส PIN — กรอกให้ถูกต้องก่อนจึงจะเข้าห้องได้</li>
+      </ul>
+      <h3>🎚️ ควบคุมการเล่น</h3>
+      <ul>
+        <li>ปรับจังหวะ (Tempo) และระดับเสียง/ปิดเสียงของเพลงที่กำลังเล่นได้จากมือถือ</li>
+        <li>เมื่อเพลงจบ จะได้เห็นคะแนนร้องเพลงแบบสุ่มและกระดานผู้นำ 5 อันดับ ขึ้นบนหน้าจอมือถือทันที</li>
+      </ul>
+      <h3>⚙️ ใช้งานสะดวก</h3>
+      <ul>
+        <li>ติดตั้งเป็นแอป (PWA) ลงหน้าจอหลักมือถือได้</li>
+        <li>รองรับภาษาไทยเต็มรูปแบบ เชื่อมต่อใหม่อัตโนมัติหากสัญญาณหลุดชั่วคราว</li>
+      </ul>
+    </div>
+
+    <div class="close-row" style="justify-content:center;gap:12px;">
+      <button class="icon-btn" id="btn-disclaimer-cancel">ยกเลิก</button>
+      <button class="icon-btn info" id="btn-disclaimer-features">คุณสมบัติ</button>
+      <button class="icon-btn accent" id="btn-disclaimer-enter">เข้าสู่ระบบ</button>
+    </div>
+  </div>
+</div>
+
+<div id="https-warning">⚠️ กำลังเปิดผ่าน HTTP — การเชื่อมต่ออาจไม่เสถียร แนะนำให้เปิดผ่าน HTTPS</div>
+<div id="connect-screen">
+  <img class="brand-mark" src="icons/icon-192.png" alt="Sri Karaoke">
+  <h1>Sri<span>Karaoke</span> รีโมท</h1>
+  <p>เชื่อมต่อกับจอหลักเพื่อค้นหาเพลง จัดการคิว และควบคุมการเล่นได้จากมือถือของคุณ</p>
+  <div class="code-input-row">
+    <input type="text" id="room-input" placeholder="รหัสห้อง เช่น ABCDE" maxlength="24">
+    <button class="go" id="btn-connect">เชื่อมต่อ</button>
+  </div>
+  <div class="nickname-row">
+    <input type="text" id="pin-input" placeholder="รหัส PIN (ถ้าห้องล็อกไว้)" maxlength="4" inputmode="numeric">
+  </div>
+  <div class="nickname-row">
+    <input type="text" id="admintoken-input" placeholder="รหัสแอดมิน (ถ้ามี)" maxlength="8">
+  </div>
+  <div class="nickname-row">
+    <input type="text" id="nickname-input" placeholder="ชื่อของคุณ (ไม่บังคับ)" maxlength="20">
+  </div>
+  <div id="connect-status"></div>
+</div>
+
+<div class="score-popup-overlay" id="score-popup-overlay">
+  <div class="score-popup-box" id="score-popup-box"></div>
+</div>
+
+<div id="app-screen">
+  <div id="reconnect-banner">🔄 การเชื่อมต่อขาดหาย กำลังเชื่อมต่อจอหลักใหม่…</div>
+  <header>
+    <div class="top-row">
+      <h1>Sri<span>Karaoke</span></h1>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span class="role-badge" id="role-badge" style="display:none;">👑 แอดมิน</span>
+        <span class="room-pill" id="room-pill">------</span>
+      </div>
+    </div>
+    <div id="np-strip" style="display:none;">
+      <img id="np-thumb" src="" alt="">
+      <div class="meta">
+        <div class="label">กำลังเล่น</div>
+        <div class="title" id="np-title">—</div>
+      </div>
+      <span id="np-indicator" title="ควบคุมเล่น/หยุดได้ที่จอหลักเท่านั้น">▶</span>
+    </div>
+    <div id="admin-transport" style="display:none;">
+      <button id="btn-admin-prev" title="เพลงก่อนหน้า">⏮</button>
+      <button id="btn-admin-playpause" title="เล่น/หยุด">▶</button>
+      <button id="btn-admin-skip" title="ข้ามเพลง">⏭</button>
+    </div>
+    <div class="tempo-row">
+      <span class="tempo-label">จังหวะ (Tempo)</span>
+      <div class="tempo-control">
+        <button id="btn-tempo-down">−</button>
+        <span id="tempo-value">1.00x</span>
+        <button id="btn-tempo-up">+</button>
+      </div>
+    </div>
+    <div class="tempo-row">
+      <span class="tempo-label">ระดับเสียง</span>
+      <div class="tempo-control">
+        <button id="btn-mute">🔊</button>
+        <button id="btn-volume-down">−</button>
+        <span id="volume-value">80%</span>
+        <button id="btn-volume-up">+</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="tab-panel active" id="tab-search">
+      <div class="search-row">
+        <input type="text" id="search-input" placeholder="ค้นหาเพลง หรือวางลิงก์ YouTube">
+        <button id="btn-search">ค้นหา</button>
+      </div>
+      <p class="hint" id="search-hint"></p>
+      <div id="search-results"></div>
+    </section>
+
+    <section class="tab-panel" id="tab-queue">
+      <div id="remote-queue-list"></div>
+    </section>
+
+    <section class="tab-panel" id="tab-playlists">
+      <div id="remote-pl-list"></div>
+    </section>
+
+    <section class="tab-panel" id="tab-settings">
+      <div class="field">
+        <label>YouTube Data API Key (สำหรับค้นหาเพลงด้วยคำ)</label>
+        <input type="text" id="api-key-input" placeholder="วาง API Key ที่นี่">
+        <button class="save-btn" id="btn-save-key">บันทึก</button>
+      </div>
+      <p class="settings-note">
+        ไม่จำเป็นต้องมี API Key ก็สามารถเพิ่มเพลงได้ โดยวางลิงก์ YouTube โดยตรงในช่องค้นหา<br><br>
+        หากต้องการค้นหาด้วยคำค้น ให้สร้าง API Key ฟรีจาก Google Cloud Console แล้วเปิดใช้งาน "YouTube Data API v3"
+      </p>
+    </section>
+  </main>
+
+  <nav id="tabbar">
+    <button class="tab-btn active" data-tab="tab-search"><span class="ic">🔍</span>ค้นหา</button>
+    <button class="tab-btn" data-tab="tab-queue"><span class="ic">🎵</span>คิวเพลง</button>
+    <button class="tab-btn" data-tab="tab-playlists"><span class="ic">📁</span>เพลย์ลิสต์</button>
+    <button class="tab-btn" data-tab="tab-settings"><span class="ic">⚙️</span>ตั้งค่า</button>
+  </nav>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="remote.js"></script>
+</body>
+</html>

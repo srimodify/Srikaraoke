@@ -1,0 +1,16 @@
+{
+  "name": "Sri Karaoke - รีโมท",
+  "short_name": "SK Remote",
+  "description": "รีโมทมือถือสำหรับควบคุมเพลง Sri Karaoke",
+  "start_url": "./remote.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0F0C1E",
+  "theme_color": "#1B1533",
+  "lang": "th",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

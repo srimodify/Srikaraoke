@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sri Karaoke — จอหลัก</title>
+<meta name="theme-color" content="#1B1533">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0F0C1E;
+  --panel:#1B1533;
+  --panel-2:#241C42;
+  --gold:#FFC857;
+  --magenta:#FF3D81;
+  --teal:#2EE6D6;
+  --text:#F5F1FA;
+  --text-dim:#B8AFD1;
+  --line:#352A5C;
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;
+  background:var(--ink);
+  color:var(--text);
+  font-family:'Sarabun',sans-serif;
+  overflow:hidden;
+}
+h1,h2,h3,.display{font-family:'Kanit',sans-serif;}
+button{font-family:inherit;}
+
+#app{
+  height:100vh;
+  height:100dvh;
+  display:flex;
+  flex-direction:column;
+}
+
+/* ---------- HEADER ---------- */
+header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 24px;
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
+  flex-shrink:0;
+}
+.brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.brand-mark{
+  width:38px;height:38px;border-radius:50%;
+  background:var(--panel-2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;
+  object-fit:cover;
+  flex-shrink:0;
+}
+.brand h1{
+  margin:0;
+  font-size:22px;
+  font-weight:600;
+  letter-spacing:.3px;
+}
+.brand span{color:var(--magenta);}
+.header-actions{display:flex;gap:10px;}
+.icon-btn{
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  color:var(--text);
+  border-radius:12px;
+  padding:10px 16px;
+  font-size:15px;
+  cursor:pointer;
+  display:flex;align-items:center;gap:8px;
+  transition:background .15s, transform .1s;
+}
+.icon-btn:hover{background:#2E2450;}
+.icon-btn:focus-visible{outline:3px solid var(--gold);outline-offset:2px;}
+.icon-btn:active{transform:scale(.97);}
+.icon-btn.accent{background:var(--gold);color:#1B1533;border-color:var(--gold);font-weight:600;}
+.icon-btn.accent:hover{background:#ffd680;}
+
+/* ---------- MAIN LAYOUT ---------- */
+main{
+  flex:1;
+  display:flex;
+  min-height:0;
+}
+main.queue-hidden #queue-panel{display:none;}
+main.queue-hidden #player-section{flex:1 1 100%;}
+#player-section{
+  flex:1 1 68%;
+  position:relative;
+  background:#000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+#player-wrap{
+  width:100%;height:100%;
+  position:relative;
+}
+#player{
+  width:100%;height:100%;
+}
+#idle-screen{
+  position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;
+  background:radial-gradient(circle at 50% 40%, #241C42 0%, #0F0C1E 70%);
+}
+.idle-content{
+  position:relative;z-index:3;
+  display:flex;flex-direction:column;align-items:center;gap:18px;
+  background:rgba(15,12,30,.55);
+  backdrop-filter:blur(8px);
+  padding:36px 44px;
+  border-radius:24px;
+  border:1px solid rgba(255,255,255,.08);
+  max-width:88%;
+}
+#idle-screen .display{
+  font-size:clamp(28px,4vw,56px);
+  font-weight:700;
+  text-align:center;
+}
+#idle-screen .display span{color:var(--gold);}
+#idle-screen p{color:var(--text-dim);font-size:18px;max-width:520px;text-align:center;line-height:1.6;}
+#btn-start-audio{
+  background:var(--magenta);color:#fff;border:none;border-radius:16px;
+  padding:16px 32px;font-size:19px;font-weight:600;cursor:pointer;
+  font-family:'Kanit',sans-serif;
+  box-shadow:0 0 0 0 rgba(255,61,129,.5);
+  animation:pulse 2s infinite;
+}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 rgba(255,61,129,.45);}
+  70%{box-shadow:0 0 0 18px rgba(255,61,129,0);}
+  100%{box-shadow:0 0 0 0 rgba(255,61,129,0);}
+}
+#btn-start-audio:focus-visible{outline:3px solid var(--gold);outline-offset:3px;}
+
+/* ---------- idle screensaver: spotlights + sharp disco bursts + LED blinkers + wandering logo ---------- */
+
+/* Sweeping stage spotlights from the top, like real disco/karaoke ceiling lights */
+.spotlights{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden;}
+.spotlight{
+  position:absolute;
+  top:-15%;
+  left:50%;
+  width:38%;
+  height:150%;
+  clip-path:polygon(48% 0%, 52% 0%, 100% 100%, 0% 100%);
+  mix-blend-mode:screen;
+  transform-origin:top center;
+}
+.spotlight-1{
+  background:linear-gradient(to bottom, rgba(255,255,255,.9) 0%, rgba(255,255,255,.25) 45%, rgba(255,255,255,0) 78%);
+  animation:spot-sweep-1 7s ease-in-out infinite;
+}
+.spotlight-2{
+  left:22%;
+  background:linear-gradient(to bottom, rgba(255,61,129,.85) 0%, rgba(255,61,129,.2) 45%, rgba(255,61,129,0) 78%);
+  animation:spot-sweep-2 9s ease-in-out infinite;
+}
+.spotlight-3{
+  left:78%;
+  background:linear-gradient(to bottom, rgba(46,230,214,.8) 0%, rgba(46,230,214,.2) 45%, rgba(46,230,214,0) 78%);
+  animation:spot-sweep-3 8s ease-in-out infinite;
+}
+@keyframes spot-sweep-1{
+  0%,100%{ transform:translateX(-50%) rotate(-38deg); }
+  50%{ transform:translateX(-50%) rotate(38deg); }
+}
+@keyframes spot-sweep-2{
+  0%,100%{ transform:translateX(-50%) rotate(-22deg); }
+  50%{ transform:translateX(-50%) rotate(48deg); }
+}
+@keyframes spot-sweep-3{
+  0%,100%{ transform:translateX(-50%) rotate(22deg); }
+  50%{ transform:translateX(-50%) rotate(-48deg); }
+}
+
+/* Brief bright glare when a spotlight swings toward the viewer — kept infrequent and localized (not full-screen strobing) */
+.disco-glare{
+  position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:radial-gradient(circle at 50% 10%, rgba(255,255,255,.85), transparent 38%);
+  opacity:0;
+  mix-blend-mode:screen;
+  animation:glare-flash 6.5s ease-in-out infinite;
+}
+@keyframes glare-flash{
+  0%,87%{opacity:0;}
+  89%{opacity:.85;}
+  91%{opacity:0;}
+  100%{opacity:0;}
+}
+
+/* Sharp, vivid color bursts — radial falloff gives a defined glow without a hazy blur filter */
+.disco-lights{position:absolute;inset:0;z-index:1;pointer-events:none;}
+.disco-dot{
+  position:absolute;
+  width:220px;height:220px;
+  border-radius:50%;
+  opacity:.85;
+  mix-blend-mode:screen;
+  animation:disco-float 15s ease-in-out infinite;
+}
+.disco-dot.d1{background:radial-gradient(circle, #FF3D81 0%, rgba(255,61,129,.35) 45%, rgba(255,61,129,0) 72%);top:8%;left:10%;animation-duration:15s;}
+.disco-dot.d2{background:radial-gradient(circle, #FFC857 0%, rgba(255,200,87,.35) 45%, rgba(255,200,87,0) 72%);top:55%;left:68%;animation-duration:19s;animation-delay:-4s;}
+.disco-dot.d3{background:radial-gradient(circle, #2EE6D6 0%, rgba(46,230,214,.35) 45%, rgba(46,230,214,0) 72%);top:66%;left:14%;animation-duration:13s;animation-delay:-8s;}
+.disco-dot.d4{background:radial-gradient(circle, #8B5CF6 0%, rgba(139,92,246,.35) 45%, rgba(139,92,246,0) 72%);top:10%;left:74%;animation-duration:17s;animation-delay:-2s;}
+@keyframes disco-float{
+  0%{transform:translate(0,0) scale(1);}
+  25%{transform:translate(50px,-35px) scale(1.15);}
+  50%{transform:translate(-25px,35px) scale(.9);}
+  75%{transform:translate(35px,25px) scale(1.08);}
+  100%{transform:translate(0,0) scale(1);}
+}
+
+/* Small blinking LED-style lights scattered around the edges, like string lights around a karaoke room */
+.led-lights{position:absolute;inset:0;z-index:1;pointer-events:none;}
+.led{
+  position:absolute;
+  width:9px;height:9px;
+  border-radius:50%;
+  background:currentColor;
+  box-shadow:0 0 10px 3px currentColor;
+  animation:led-blink 1.3s ease-in-out infinite;
+}
+@keyframes led-blink{
+  0%,100%{opacity:.12;}
+  50%{opacity:1;}
+}
+.led.l1{top:6%;left:18%;color:#FF3D81;animation-delay:0s;}
+.led.l2{top:6%;left:38%;color:#FFC857;animation-delay:.2s;}
+.led.l3{top:6%;left:62%;color:#2EE6D6;animation-delay:.4s;}
+.led.l4{top:6%;left:82%;color:#8B5CF6;animation-delay:.6s;}
+.led.l5{top:93%;left:14%;color:#FFC857;animation-delay:.1s;}
+.led.l6{top:93%;left:34%;color:#FF3D81;animation-delay:.3s;}
+.led.l7{top:93%;left:58%;color:#8B5CF6;animation-delay:.5s;}
+.led.l8{top:93%;left:80%;color:#2EE6D6;animation-delay:.7s;}
+.led.l9{top:48%;left:3%;color:#FF3D81;animation-delay:.25s;}
+.led.l10{top:48%;left:97%;color:#2EE6D6;animation-delay:.45s;}
+.led.l11{top:22%;left:6%;color:#FFC857;animation-delay:.55s;}
+.led.l12{top:76%;left:94%;color:#8B5CF6;animation-delay:.15s;}
+
+#screensaver-logo{
+  position:absolute;
+  width:min(14vw,120px);height:min(14vw,120px);
+  border-radius:50%;
+  object-fit:cover;
+  z-index:2;pointer-events:none;
+  filter:drop-shadow(0 0 30px rgba(255,200,87,.55));
+  animation:logo-wander 24s ease-in-out infinite;
+}
+@keyframes logo-wander{
+  0%{   left:12%; top:18%; transform:translate(-50%,-50%) scale(1)    rotate(0deg);  }
+  15%{  left:82%; top:22%; transform:translate(-50%,-50%) scale(1.1)  rotate(8deg);  }
+  30%{  left:72%; top:76%; transform:translate(-50%,-50%) scale(.95)  rotate(-6deg); }
+  45%{  left:18%; top:80%; transform:translate(-50%,-50%) scale(1.05) rotate(5deg);  }
+  60%{  left:14%; top:46%; transform:translate(-50%,-50%) scale(1)    rotate(-4deg); }
+  75%{  left:55%; top:28%; transform:translate(-50%,-50%) scale(1.08) rotate(6deg);  }
+  90%{  left:84%; top:60%; transform:translate(-50%,-50%) scale(.97)  rotate(-5deg); }
+  100%{ left:12%; top:18%; transform:translate(-50%,-50%) scale(1)    rotate(0deg);  }
+}
+
+/* Respect reduced-motion preferences: keep the screensaver static/gentler for anyone sensitive to flashing */
+@media (prefers-reduced-motion: reduce){
+  .spotlight, .disco-glare, .disco-dot, .led, #screensaver-logo{ animation: none !important; }
+  .disco-glare{ display:none; }
+}
+
+
+
+/* ---------- toast notifications ---------- */
+#toast-container{
+  position:fixed;top:16px;left:50%;transform:translateX(-50%);
+  z-index:200;display:flex;flex-direction:column;gap:8px;align-items:center;
+  pointer-events:none;
+}
+.toast{
+  background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  padding:10px 18px;border-radius:999px;font-size:14px;
+  box-shadow:0 6px 20px rgba(0,0,0,.35);
+  animation:toast-in .2s ease-out;
+  max-width:80vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.toast.error{border-color:var(--magenta);}
+@keyframes toast-in{from{opacity:0;transform:translateY(-8px);}to{opacity:1;transform:translateY(0);}}
+
+/* ---------- https warning ---------- */
+#https-warning{
+  display:none;
+  background:#3A2A0F;border-bottom:1px solid #6B4E1A;color:var(--gold);
+  font-size:13px;text-align:center;padding:8px 16px;flex-shrink:0;
+}
+
+/* ---------- singing score popup ---------- */
+.score-popup-overlay{
+  display:none;
+  position:fixed;inset:0;z-index:400;
+  align-items:center;justify-content:center;
+  background:rgba(6,4,15,.7);
+  cursor:pointer;
+}
+.score-popup-box{
+  background:linear-gradient(160deg, #241C42 0%, #1B1533 100%);
+  border:1px solid var(--line);
+  border-radius:24px;
+  padding:36px 48px;
+  text-align:center;
+  min-width:320px;
+  max-width:90vw;
+  box-shadow:0 20px 60px rgba(0,0,0,.5);
+  animation:score-pop .35s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes score-pop{
+  from{opacity:0;transform:scale(.8);}
+  to{opacity:1;transform:scale(1);}
+}
+.score-stage-title{font-family:'Kanit',sans-serif;font-size:18px;color:var(--text-dim);margin-bottom:10px;}
+.score-singer{font-family:'Kanit',sans-serif;font-size:26px;font-weight:700;color:var(--text);}
+.score-song{font-size:14px;color:var(--text-dim);margin:4px 0 18px;}
+.score-number{
+  font-family:'Kanit',sans-serif;font-weight:700;font-size:88px;line-height:1;
+  text-shadow:0 0 30px currentColor;
+}
+.score-tier{font-family:'Kanit',sans-serif;font-size:20px;font-weight:600;margin-top:8px;}
+.leaderboard-list{display:flex;flex-direction:column;gap:8px;margin-top:6px;min-width:320px;}
+.lb-row{
+  display:grid;grid-template-columns:28px 1fr auto;gap:12px;align-items:center;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:10px 16px;
+  text-align:left;
+}
+.lb-row:nth-child(1) .lb-rank{color:var(--gold);}
+.lb-rank{font-family:'Kanit',sans-serif;font-weight:700;font-size:18px;color:var(--text-dim);}
+.lb-info{min-width:0;}
+.lb-name{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lb-song{font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lb-score{font-family:'Kanit',sans-serif;font-weight:700;font-size:20px;color:var(--gold);}
+
+#now-playing-bar{
+  position:absolute;left:0;right:0;bottom:0;
+  padding:16px 24px;
+  background:linear-gradient(to top, rgba(0,0,0,.85), transparent);
+  display:flex;
+  align-items:center;
+  gap:14px;
+  pointer-events:none;
+}
+#now-playing-bar .thumb{width:64px;height:64px;border-radius:10px;object-fit:cover;border:2px solid var(--gold);}
+#now-playing-bar .info{min-width:0;}
+#now-playing-bar .info .label{font-size:13px;color:var(--gold);font-weight:600;}
+#now-playing-bar .info h3{margin:2px 0 0;font-size:22px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60vw;}
+#now-playing-bar .info .by{font-size:14px;color:var(--text-dim);}
+
+#next-up-bar{
+  position:absolute;top:0;left:0;right:0;
+  padding:12px 24px;
+  background:linear-gradient(to bottom, rgba(0,0,0,.75), transparent);
+  display:flex;
+  align-items:center;
+  gap:10px;
+  pointer-events:none;
+}
+.next-up-label{font-size:13px;font-weight:600;color:var(--teal);flex-shrink:0;}
+.next-up-title{font-size:15px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.next-up-warn{font-size:14px;font-weight:600;color:var(--gold);}
+#next-up-bar.warn .next-up-label{color:var(--gold);}
+
+/* ---------- QUEUE PANEL ---------- */
+#queue-panel{
+  flex:0 0 32%;
+  max-width:420px;
+  background:var(--panel);
+  border-left:1px solid var(--line);
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+}
+.panel-head{
+  padding:16px 20px 10px;
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  flex-shrink:0;
+}
+.panel-head h2{margin:0;font-size:19px;font-weight:600;}
+.panel-head .count{color:var(--text-dim);font-size:14px;}
+.panel-head-right{display:flex;align-items:center;gap:10px;}
+.fair-toggle{
+  background:var(--panel-2);border:1px solid var(--line);color:var(--text-dim);
+  border-radius:999px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap;
+}
+.fair-toggle:hover{background:var(--line);}
+.fair-toggle.on{background:var(--gold);border-color:var(--gold);color:#1B1533;font-weight:600;}
+.fair-toggle:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+
+/* suggested song chips */
+.chip-label{font-size:12px;color:var(--text-dim);display:block;margin-bottom:6px;}
+.chip-section{margin-bottom:4px;}
+.chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+.chip{
+  background:var(--panel-2);border:1px solid var(--line);color:var(--text-dim);
+  border-radius:999px;padding:6px 13px;font-size:12px;cursor:pointer;white-space:nowrap;
+}
+.chip:hover{background:var(--line);color:var(--text);}
+.chip:focus-visible{outline:2px solid var(--gold);}
+#queue-list{
+  list-style:none;
+  margin:0;padding:6px 12px 12px;
+  overflow-y:auto;
+  flex:1;
+  display:flex;flex-direction:column;gap:8px;
+}
+#queue-list:empty::after{
+  content:"คิวว่าง — สแกน QR แล้วเพิ่มเพลงจากมือถือ";
+  color:var(--text-dim);
+  padding:20px;
+  display:block;
+  text-align:center;
+  font-size:14px;
+}
+.q-item{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:9px 10px;
+}
+.q-item.playing{border-color:var(--gold);background:#2E2245;}
+.q-item .idx{
+  width:22px;text-align:center;font-size:13px;color:var(--text-dim);flex-shrink:0;
+}
+.q-item.playing .idx{color:var(--gold);}
+.q-item img{width:52px;height:38px;object-fit:cover;border-radius:6px;flex-shrink:0;}
+.q-item .meta{flex:1;min-width:0;}
+.q-item .meta .title{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.q-item .meta .by{font-size:12px;color:var(--text-dim);}
+.q-item .actions{display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;}
+.q-item .actions button{
+  width:28px;height:28px;
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:transparent;
+  color:var(--text-dim);
+  cursor:pointer;
+  font-size:13px;
+  display:flex;align-items:center;justify-content:center;
+}
+.q-item .actions button:hover{background:var(--line);color:var(--text);}
+.q-item .actions button:focus-visible{outline:2px solid var(--gold);}
+.q-item{cursor:pointer;}
+.q-item.dragging{opacity:.4;}
+.drag-handle{
+  cursor:grab;color:var(--text-dim);font-size:14px;flex-shrink:0;
+  padding:0 2px;letter-spacing:-2px;
+}
+.drag-handle:active{cursor:grabbing;}
+
+.tempo-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px 14px;
+  flex-shrink:0;
+}
+.tempo-label{font-size:13px;color:var(--text-dim);}
+.tempo-control{display:flex;align-items:center;gap:10px;}
+.tempo-control button{
+  width:32px;height:32px;border-radius:9px;border:1px solid var(--line);
+  background:var(--panel-2);color:var(--text);font-size:17px;cursor:pointer;
+}
+.tempo-control button:hover{background:var(--line);}
+.tempo-control button:focus-visible{outline:2px solid var(--gold);}
+.tempo-control span{
+  font-family:'Kanit',sans-serif;font-weight:600;font-size:15px;color:var(--gold);
+  min-width:52px;text-align:center;
+}
+#btn-mute.on{background:var(--magenta);border-color:var(--magenta);color:#fff;}
+
+/* search modal */
+.search-row{display:flex;gap:8px;margin-bottom:6px;}
+.search-row input{
+  flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:10px;padding:11px 13px;font-size:14px;font-family:inherit;
+}
+.search-row input:focus-visible{outline:2px solid var(--gold);}
+.search-row button{
+  background:var(--gold);color:#1B1533;border:none;border-radius:10px;
+  padding:0 16px;font-weight:600;cursor:pointer;
+}
+.hint{color:var(--text-dim);font-size:12px;margin:0 0 12px;line-height:1.6;}
+.result-card{
+  display:flex;gap:12px;background:var(--panel-2);border:1px solid var(--line);
+  border-radius:12px;padding:10px;margin-bottom:8px;align-items:center;
+}
+.result-card img{width:80px;height:58px;object-fit:cover;border-radius:8px;flex-shrink:0;}
+.result-card .meta{flex:1;min-width:0;}
+.result-card .meta .title{font-size:14px;font-weight:500;line-height:1.35;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.result-card .meta .channel{font-size:12px;color:var(--text-dim);margin-top:3px;}
+.result-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0;}
+.result-actions button{
+  background:var(--magenta);border:none;color:#fff;border-radius:9px;
+  padding:7px 10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;
+}
+.result-actions button[data-act="queue"]{background:var(--panel);border:1px solid var(--line);color:var(--text);}
+.field label{display:block;font-size:13px;color:var(--text-dim);margin-bottom:6px;}
+
+.transport{
+  display:flex;
+  gap:10px;
+  padding:14px 20px;
+  border-top:1px solid var(--line);
+  flex-shrink:0;
+}
+.transport button{
+  flex:1;
+  padding:12px 0;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background:var(--panel-2);
+  color:var(--text);
+  font-size:15px;
+  cursor:pointer;
+}
+.transport button:focus-visible{outline:3px solid var(--gold);outline-offset:2px;}
+.transport button.primary{background:var(--magenta);border-color:var(--magenta);font-weight:600;}
+
+/* ---------- MODALS ---------- */
+.modal-overlay{
+  position:fixed;inset:0;
+  background:rgba(6,4,15,.75);
+  display:flex;align-items:center;justify-content:center;
+  z-index:50;
+  padding:20px;
+}
+.modal-overlay.hidden{display:none;}
+.modal{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:20px;
+  padding:28px;
+  max-width:480px;
+  width:100%;
+  max-height:86vh;
+  overflow-y:auto;
+}
+.modal h2{margin:0 0 6px;font-size:22px;}
+.modal p.sub{color:var(--text-dim);margin:0 0 18px;font-size:14px;}
+.modal .close-row{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
+
+/* first-load disclaimer */
+.disclaimer-overlay{
+  position:fixed;inset:0;background:rgba(6,4,15,.92);
+  display:flex;align-items:center;justify-content:center;
+  z-index:500;padding:20px;
+}
+.disclaimer-box{max-width:560px;}
+.disclaimer-body{max-height:50vh;overflow-y:auto;padding-right:6px;margin-bottom:16px;}
+.disclaimer-body h3{font-size:15px;margin:16px 0 8px;color:var(--gold);}
+.disclaimer-body h3:first-child{margin-top:0;}
+.disclaimer-body p{font-size:13px;color:var(--text-dim);line-height:1.7;margin:0 0 8px;}
+.disclaimer-body ul{margin:0 0 10px;padding-left:20px;}
+.disclaimer-body li{font-size:13px;color:var(--text-dim);line-height:1.7;margin-bottom:4px;}
+.disclaimer-body strong{color:var(--text);}
+.disclaimer-overlay .close-row{flex-wrap:wrap;}
+.icon-btn.info{border-color:var(--teal);color:var(--teal);}
+.icon-btn.info:hover{background:rgba(46,230,214,.12);}
+
+/* pin lock */
+.pin-section{
+  margin-top:18px;padding-top:16px;border-top:1px solid var(--line);
+  text-align:left;
+}
+.pin-toggle-label{
+  display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--text-dim);
+  cursor:pointer;line-height:1.5;
+}
+.pin-toggle-label input{margin-top:2px;accent-color:var(--gold);width:16px;height:16px;flex-shrink:0;}
+#pin-display-row{
+  display:flex;align-items:center;gap:10px;margin-top:12px;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:10px 14px;
+}
+#pin-display-row span:first-child{font-size:13px;color:var(--text-dim);}
+.pin-value{
+  font-family:'Kanit',sans-serif;font-weight:700;font-size:20px;letter-spacing:3px;color:var(--gold);flex:1;
+}
+#btn-regen-pin{
+  background:transparent;border:1px solid var(--line);color:var(--text);
+  border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;
+}
+#btn-regen-pin:hover{background:var(--line);}
+
+/* history list */
+.hist-row{
+  display:flex;align-items:center;gap:12px;background:var(--panel-2);border:1px solid var(--line);
+  border-radius:12px;padding:9px 10px;margin-bottom:8px;
+}
+.hist-row img{width:64px;height:46px;object-fit:cover;border-radius:8px;flex-shrink:0;}
+.hist-row .meta{flex:1;min-width:0;}
+.hist-row .meta .title{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hist-row .meta .sub{font-size:12px;color:var(--text-dim);margin-top:2px;}
+.hist-row button{
+  background:var(--panel);border:1px solid var(--line);color:var(--text);
+  border-radius:9px;padding:7px 12px;font-size:12px;cursor:pointer;flex-shrink:0;
+}
+.hist-row button:hover{background:var(--line);}
+#qrcode{
+  display:flex;justify-content:center;
+  background:#fff;
+  padding:16px;
+  border-radius:14px;
+  margin:0 auto 16px;
+  width:fit-content;
+}
+.room-code{
+  text-align:center;
+  font-family:'Kanit',sans-serif;
+  font-size:34px;
+  font-weight:700;
+  letter-spacing:4px;
+  color:var(--gold);
+  margin:6px 0 4px;
+}
+.room-url{
+  text-align:center;
+  color:var(--text-dim);
+  font-size:13px;
+  word-break:break-all;
+  margin-bottom:6px;
+}
+.conn-status{
+  text-align:center;
+  font-size:13px;
+  color:var(--teal);
+  margin-top:10px;
+}
+.qr-section{
+  border-top:1px solid var(--line);
+  padding-top:18px;margin-top:18px;
+}
+.qr-section:first-of-type{border-top:none;padding-top:0;margin-top:0;}
+.qr-section-title{margin:0 0 4px;font-size:16px;}
+.qr-section-admin #qrcode-admin{
+  display:flex;justify-content:center;background:#fff;padding:16px;border-radius:14px;margin:0 auto 10px;width:fit-content;
+}
+
+/* playlist modal */
+.pl-row{
+  display:flex;align-items:center;gap:10px;
+  background:var(--panel-2);border:1px solid var(--line);
+  border-radius:12px;padding:10px 12px;margin-bottom:8px;
+}
+.pl-row .name{flex:1;font-weight:500;}
+.pl-row .count{color:var(--text-dim);font-size:13px;}
+.pl-row button{
+  border:1px solid var(--line);background:transparent;color:var(--text);
+  border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px;
+}
+.pl-row button:hover{background:var(--line);}
+.new-pl-form{display:flex;gap:8px;margin-bottom:16px;}
+.new-pl-form input{
+  flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:10px;padding:10px 12px;font-size:14px;font-family:inherit;
+}
+.new-pl-form input:focus-visible{outline:2px solid var(--gold);}
+.new-pl-form button{
+  background:var(--gold);color:#1B1533;border:none;border-radius:10px;
+  padding:0 16px;font-weight:600;cursor:pointer;
+}
+.empty-note{color:var(--text-dim);font-size:14px;text-align:center;padding:20px 0;}
+.pl-export-row{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
+.pl-export-row .icon-btn{flex:1;justify-content:center;font-size:13px;}
+
+/* ---------- PORTRAIT LAYOUT ---------- */
+@media (orientation: portrait){
+  main{flex-direction:column;}
+  #player-section{flex:0 0 42%;}
+  #queue-panel{flex:1;max-width:none;border-left:none;border-top:1px solid var(--line);}
+  #now-playing-bar .info h3{max-width:50vw;}
+}
+@media (max-width: 640px){
+  header{padding:10px 14px;}
+  .brand h1{font-size:17px;}
+  .icon-btn{padding:8px 12px;font-size:13px;}
+  .icon-btn span.label{display:none;}
+}
+::-webkit-scrollbar{width:8px;}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px;}
+</style>
+</head>
+<body>
+<div class="disclaimer-overlay" id="disclaimer-modal">
+  <div class="modal disclaimer-box">
+    <h2 id="disclaimer-title">เกี่ยวกับเว็บไซต์</h2>
+    <p class="sub" id="disclaimer-subtitle">ข้อมูลเกี่ยวกับเว็บไซต์ ลิขสิทธิ์ และการใช้งาน</p>
+
+    <div class="disclaimer-body" id="disclaimer-panel-about">
+      <h3>เกี่ยวกับเว็บไซต์</h3>
+      <p>เว็บไซต์คาราโอเกะออนไลน์นี้เป็นแพลตฟอร์มที่ให้บริการค้นหาและเล่นเพลงคาราโอเกะผ่าน YouTube โดยใช้ YouTube IFrame Player API เพื่อแสดงวิดีโอคาราโอเกะจากช่องต่างๆ บน YouTube</p>
+      <p>ระบบนี้พัฒนาขึ้นเพื่อความสะดวกในการค้นหาและจัดการเพลงคาราโอเกะ พร้อมฟีเจอร์ต่างๆ เช่น การค้นหาด้วยเสียง การจัดการ Playlist และรีโมทคอนโทรลสำหรับควบคุมการเล่นเพลงจากระยะไกล</p>
+
+      <h3>ลิขสิทธิ์เพลง</h3>
+      <p><strong>⚠️ ข้อสำคัญเกี่ยวกับลิขสิทธิ์:</strong></p>
+      <ul>
+        <li>วิดีโอคาราโอเกะทั้งหมดที่แสดงบนเว็บไซต์นี้เป็นเนื้อหาจาก YouTube</li>
+        <li>เว็บไซต์นี้ <strong>ไม่ได้เป็นเจ้าของลิขสิทธิ์</strong> ของเพลงหรือวิดีโอใดๆ</li>
+        <li>ลิขสิทธิ์ของเพลงและวิดีโอเป็นของเจ้าของลิขสิทธิ์ดั้งเดิม (ศิลปิน, ค่ายเพลง, หรือช่อง YouTube ที่อัปโหลด)</li>
+        <li>เว็บไซต์นี้เป็นเพียงแพลตฟอร์มที่ช่วยให้ผู้ใช้ค้นหาและเข้าถึงวิดีโอคาราโอเกะที่เผยแพร่บน YouTube</li>
+      </ul>
+      <p><strong>📋 การใช้งาน:</strong></p>
+      <ul>
+        <li>เว็บไซต์นี้ใช้ YouTube IFrame Player API ตามข้อกำหนดและเงื่อนไขของ Google/YouTube</li>
+        <li>วิดีโอทั้งหมดถูกฝัง (embed) จาก YouTube โดยตรง ไม่มีการดาวน์โหลดหรือจัดเก็บวิดีโอบนเซิร์ฟเวอร์ของเว็บไซต์</li>
+        <li>การแสดงผลวิดีโอเป็นไปตามนโยบายและข้อกำหนดของ YouTube</li>
+        <li>หากเจ้าของลิขสิทธิ์ต้องการให้ลบวิดีโอใดๆ กรุณาติดต่อเจ้าของช่อง YouTube ที่อัปโหลดวิดีโอนั้น</li>
+      </ul>
+
+      <h3>โฆษณาจาก YouTube และรายได้</h3>
+      <p><strong>💰 รายได้และยอดวิว:</strong></p>
+      <ul>
+        <li>รายได้จากโฆษณา: รายได้ทั้งหมดจากโฆษณาที่แสดงในวิดีโอเป็นของเจ้าของช่อง YouTube ที่อัปโหลดวิดีโอนั้นๆ</li>
+        <li>ยอดวิว: ยอดวิวทั้งหมดจะถูกนับเข้าสู่ช่อง YouTube ต้นฉบับที่อัปโหลดวิดีโอ</li>
+        <li>เว็บไซต์นี้ไม่ได้รับรายได้: เว็บไซต์นี้ไม่ได้รับรายได้จากโฆษณาหรือยอดวิวใดๆ ทั้งสิ้น</li>
+        <li>รายได้ทั้งหมดเป็นไปตามเงื่อนไขและนโยบายของ YouTube Partner Program</li>
+      </ul>
+      <p><strong>📺 การแสดงโฆษณา:</strong></p>
+      <ul>
+        <li>โฆษณาที่แสดงในวิดีโอเป็นไปตามการตั้งค่าของเจ้าของช่อง YouTube</li>
+        <li>YouTube จะแสดงโฆษณาตามนโยบายและเงื่อนไขของ YouTube Partner Program</li>
+        <li>เว็บไซต์นี้ไม่สามารถควบคุมหรือจัดการโฆษณาที่แสดงในวิดีโอได้</li>
+        <li>การแสดงโฆษณาขึ้นอยู่กับการตั้งค่าของเจ้าของช่องและนโยบายของ YouTube</li>
+      </ul>
+      <p><strong>📌 สรุป:</strong></p>
+      <p>เว็บไซต์นี้เป็นเพียงแพลตฟอร์มที่ช่วยให้ผู้ใช้ค้นหาและเข้าถึงวิดีโอคาราโอเกะบน YouTube โดยไม่ได้รับรายได้ใดๆ จากโฆษณาหรือยอดวิว รายได้และยอดวิวทั้งหมดเป็นของเจ้าของช่อง YouTube ที่อัปโหลดวิดีโอต้นฉบับ</p>
+
+      <h3>ข้อกำหนดการใช้งาน</h3>
+      <ul>
+        <li>ผู้ใช้ต้องปฏิบัติตามข้อกำหนดและเงื่อนไขของ YouTube เมื่อใช้งานวิดีโอ</li>
+        <li>ห้ามใช้เว็บไซต์เพื่อวัตถุประสงค์ที่ผิดกฎหมายหรือละเมิดลิขสิทธิ์</li>
+        <li>เว็บไซต์สงวนสิทธิ์ในการเปลี่ยนแปลงหรือหยุดให้บริการได้โดยไม่ต้องแจ้งล่วงหน้า</li>
+        <li>ผู้ใช้ต้องรับผิดชอบต่อการใช้งานเว็บไซต์ของตนเอง</li>
+        <li>หากพบวิดีโอที่ละเมิดลิขสิทธิ์ กรุณาติดต่อเจ้าของช่อง YouTube ที่เกี่ยวข้อง</li>
+      </ul>
+    </div>
+
+    <div class="disclaimer-body" id="disclaimer-panel-features" style="display:none;">
+      <h3>🎤 ระบบเล่น &amp; ค้นหาเพลง</h3>
+      <ul>
+        <li>ค้นหาและเล่นเพลงคาราโอเกะจาก YouTube ได้ทันที ไม่ต้องดาวน์โหลดหรือติดตั้งอะไรเพิ่ม</li>
+        <li>ค้นหาได้ทั้งจากจอหลักโดยตรง และจากมือถือผ่านรีโมท พร้อมภาพตัวอย่างย่อ (thumbnail) ของผลการค้นหา</li>
+        <li>มีชิป "เพลงแนะนำ" ให้แตะค้นหาได้ทันทีโดยไม่ต้องพิมพ์</li>
+        <li>วางลิงก์ YouTube โดยตรงเพื่อเพิ่มเพลงได้ แม้ไม่ได้ตั้งค่า API Key</li>
+      </ul>
+      <h3>📋 การจัดการคิวเพลง</h3>
+      <ul>
+        <li>เพิ่ม ลบ แทรกเล่นถัดไป และจัดเรียงลำดับคิวได้ (ลากวางหรือปุ่ม ▲▼)</li>
+        <li>โหมด "คิวคนร้อง" แบ่งคิวเท่าเทียมอัตโนมัติ กันคนเดียวจองคิวรวด</li>
+        <li>บันทึก/โหลดเพลย์ลิสต์ และนำเข้า-ส่งออกเพลย์ลิสต์เป็นไฟล์ .json ได้</li>
+        <li>ดูประวัติเพลงที่เล่นไปแล้วทั้งหมด พร้อมเหตุผลที่เปลี่ยนเพลงและเวลาที่ผ่านมา</li>
+      </ul>
+      <h3>📱 รีโมทมือถือผ่าน QR Code</h3>
+      <ul>
+        <li>สแกน QR เพื่อควบคุมจากมือถือได้พร้อมกันหลายเครื่อง</li>
+        <li>แยกสิทธิ์ 3 ระดับ: จอหลัก, รีโมทแอดมิน (คุมได้ทุกอย่าง), รีโมทผู้ใช้ทั่วไป (เพิ่ม/ลบเพลง ปรับจังหวะ-เสียง)</li>
+        <li>ล็อกห้องด้วยรหัส PIN ได้ (ทางเลือก) กันคนแปลกหน้าเข้ามาคุมคิว</li>
+      </ul>
+      <h3>🎚️ ควบคุมการเล่น</h3>
+      <ul>
+        <li>ปรับจังหวะ (Tempo) และระดับเสียง/ปิดเสียงได้ทั้งจากจอหลักและรีโมท</li>
+        <li>ระบบให้คะแนนร้องเพลงแบบสุ่มหลังเพลงจบ พร้อมกระดานผู้นำ 5 อันดับ แสดงทั้งจอหลักและมือถือทุกเครื่อง</li>
+      </ul>
+      <h3>⚙️ ใช้งานสะดวก</h3>
+      <ul>
+        <li>ติดตั้งเป็นแอป (PWA) ได้ทั้งจอทีวี กล่องแอนดรอย และมือถือ</li>
+        <li>รองรับภาษาไทยเต็มรูปแบบ ทั้งแนวตั้งและแนวนอน</li>
+        <li>นำทางด้วยรีโมททีวี/กล่องแอนดรอยได้ ปุ่มโฟกัสด้วย D-pad รองรับปุ่มสื่อ (เล่น/หยุด/ข้าม)</li>
+        <li>ซ่อน/แสดงแผงคิวเพลงบนจอหลักได้ เพื่อโฟกัสที่วิดีโอเต็มจอ</li>
+      </ul>
+    </div>
+
+    <div class="close-row" style="justify-content:center;gap:12px;">
+      <button class="icon-btn" id="btn-disclaimer-cancel">ยกเลิก</button>
+      <button class="icon-btn info" id="btn-disclaimer-features">คุณสมบัติ</button>
+      <button class="icon-btn accent" id="btn-disclaimer-enter">เข้าสู่ระบบ</button>
+    </div>
+  </div>
+</div>
+<div id="toast-container"></div>
+<div class="score-popup-overlay" id="score-popup-overlay">
+  <div class="score-popup-box" id="score-popup-box"></div>
+</div>
+<div id="https-warning">⚠️ กำลังเปิดผ่าน HTTP — การเชื่อมต่อรีโมทอาจไม่เสถียร แนะนำให้เปิดผ่าน HTTPS</div>
+<div id="app">
+  <header>
+    <div class="brand">
+      <img class="brand-mark" src="icons/icon-192.png" alt="Sri Karaoke">
+      <h1>Sri<span>Karaoke</span></h1>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="btn-search"><span>🔎</span><span class="label">ค้นหาเพลง</span></button>
+      <button class="icon-btn" id="btn-history"><span>🕘</span><span class="label">ประวัติ</span></button>
+      <button class="icon-btn" id="btn-playlist"><span>📁</span><span class="label">เพลย์ลิสต์</span></button>
+      <button class="icon-btn accent" id="btn-qr"><span>📱</span><span class="label">รีโมทมือถือ</span></button>
+      <button class="icon-btn" id="btn-toggle-queue"><span>🗂️</span><span class="label">ซ่อนคิว</span></button>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section id="player-section">
+      <div id="player-wrap">
+        <div id="player"></div>
+        <div id="idle-screen">
+          <div class="spotlights">
+            <div class="spotlight spotlight-1"></div>
+            <div class="spotlight spotlight-2"></div>
+            <div class="spotlight spotlight-3"></div>
+          </div>
+          <div class="disco-glare"></div>
+          <div class="disco-lights">
+            <span class="disco-dot d1"></span>
+            <span class="disco-dot d2"></span>
+            <span class="disco-dot d3"></span>
+            <span class="disco-dot d4"></span>
+          </div>
+          <div class="led-lights">
+            <span class="led l1"></span><span class="led l2"></span><span class="led l3"></span><span class="led l4"></span>
+            <span class="led l5"></span><span class="led l6"></span><span class="led l7"></span><span class="led l8"></span>
+            <span class="led l9"></span><span class="led l10"></span><span class="led l11"></span><span class="led l12"></span>
+          </div>
+          <img id="screensaver-logo" src="icons/icon-512.png" alt="">
+          <div class="idle-content">
+            <button id="btn-start-audio">🎤 กดเริ่มระบบ (ครั้งเดียวก่อนเริ่มงาน)</button>
+            <div class="display" id="idle-title">ยินดีต้อนรับสู่ <span>Sri Karaoke</span></div>
+            <p id="idle-desc" style="display:none;">สแกน QR Code ด้านบนขวาด้วยมือถือของเพื่อน เพื่อค้นหาและเพิ่มเพลงเข้าคิวได้ทันที หรือกด "ค้นหาเพลง" ที่จอนี้ได้เลย</p>
+          </div>
+        </div>
+      </div>
+      <div id="next-up-bar" style="display:none;"></div>
+      <div id="now-playing-bar" style="display:none;">
+        <img class="thumb" id="np-thumb" src="" alt="">
+        <div class="info">
+          <div class="label">กำลังเล่นเพลงนี้</div>
+          <h3 id="np-title">—</h3>
+          <div class="by" id="np-by"></div>
+        </div>
+      </div>
+    </section>
+
+    <aside id="queue-panel">
+      <div class="panel-head">
+        <h2>คิวเพลง</h2>
+        <div class="panel-head-right">
+          <button class="fair-toggle" id="btn-fair-toggle" title="แบ่งคิวเท่าเทียมเมื่อมีหลายคนเพิ่มเพลง กันไม่ให้คนเดียวจองคิวรวด">👥 คิวคนร้อง: ปิด</button>
+          <span class="count" id="queue-count">0 เพลง</span>
+        </div>
+      </div>
+      <ul id="queue-list"></ul>
+      <div id="fair-hint" class="hint" style="display:none;padding:0 16px 8px;margin:0;">โหมดนี้จะจัดคิวใหม่อัตโนมัติเมื่อมีการเพิ่มเพลง ให้แต่ละคนได้ร้องสลับกันแทนที่จะเรียงตามลำดับที่เพิ่ม</div>
+      <div class="transport">
+        <button id="btn-prev" title="เพลงก่อนหน้า">⏮ ก่อนหน้า</button>
+        <button id="btn-playpause" class="primary" title="เล่น/หยุด">▶ เล่น</button>
+        <button id="btn-skip" title="ข้ามเพลง">ข้าม ⏭</button>
+      </div>
+      <div class="tempo-row">
+        <span class="tempo-label">จังหวะ (Tempo)</span>
+        <div class="tempo-control">
+          <button id="btn-tempo-down" title="ลดจังหวะ">−</button>
+          <span id="tempo-value">1.00x</span>
+          <button id="btn-tempo-up" title="เพิ่มจังหวะ">+</button>
+        </div>
+      </div>
+      <div class="tempo-row">
+        <span class="tempo-label">ระดับเสียง</span>
+        <div class="tempo-control">
+          <button id="btn-mute" title="ปิด/เปิดเสียง">🔊</button>
+          <button id="btn-volume-down" title="ลดเสียง">−</button>
+          <span id="volume-value">80%</span>
+          <button id="btn-volume-up" title="เพิ่มเสียง">+</button>
+        </div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<!-- QR MODAL -->
+<div class="modal-overlay hidden" id="qr-modal">
+  <div class="modal">
+    <h2>ควบคุมเพลงผ่านมือถือ</h2>
+    <div class="conn-status" id="conn-status" style="margin-bottom:14px;">รอการเชื่อมต่อ…</div>
+
+    <div class="qr-section">
+      <h3 class="qr-section-title">👤 รีโมทผู้ใช้ทั่วไป</h3>
+      <p class="sub">สแกนเพื่อค้นหา/เพิ่มเพลง ลบเพลงของตัวเอง และปรับจังหวะได้ — ควบคุมลำดับคิวและเล่น/หยุดไม่ได้</p>
+      <div id="qrcode"></div>
+      <div class="room-code" id="room-code-text">------</div>
+      <div class="room-url" id="room-url-text"></div>
+      <div class="pin-section">
+        <label class="pin-toggle-label">
+          <input type="checkbox" id="pin-toggle">
+          ล็อกห้องด้วยรหัส PIN (กันคนแปลกหน้าที่ไม่มีลิงก์เข้ามากดคุมคิว)
+        </label>
+        <div id="pin-display-row" style="display:none;">
+          <span>รหัส PIN:</span>
+          <span class="pin-value" id="pin-value">----</span>
+          <button id="btn-regen-pin">สุ่มใหม่</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="qr-section qr-section-admin">
+      <h3 class="qr-section-title">👑 รีโมทแอดมิน</h3>
+      <p class="sub">สแกนเพื่อควบคุมได้ทุกอย่างเหมือนอยู่ที่จอหลัก — เล่น/หยุด/ข้าม/ก่อนหน้า, จัดเรียงคิว, เปิดเพลย์ลิสต์ แจกเฉพาะคนที่ไว้ใจเท่านั้น</p>
+      <div id="qrcode-admin"></div>
+      <div class="room-url" id="admin-room-url-text"></div>
+      <div class="close-row" style="justify-content:center;margin-top:12px;">
+        <button class="icon-btn" id="btn-regen-admintoken">สุ่มรหัสแอดมินใหม่ (ยกเลิก QR เดิม)</button>
+      </div>
+    </div>
+
+    <div class="close-row"><button class="icon-btn" onclick="closeModal('qr-modal')">ปิด</button></div>
+  </div>
+</div>
+
+<!-- HISTORY MODAL -->
+<div class="modal-overlay hidden" id="history-modal">
+  <div class="modal">
+    <h2>ประวัติเพลงที่เล่นไปแล้ว</h2>
+    <p class="sub">ดูย้อนหลังว่าเล่นเพลงอะไรไปบ้าง กด "+ คิว" เพื่อนำกลับมาเล่นซ้ำได้</p>
+    <div id="history-list"></div>
+    <div class="close-row">
+      <button class="icon-btn" id="btn-clear-history">ล้างประวัติ</button>
+      <button class="icon-btn" onclick="closeModal('history-modal')">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<!-- SEARCH MODAL (single-screen mode: search & add/play directly) -->
+<div class="modal-overlay hidden" id="search-modal">
+  <div class="modal">
+    <h2>ค้นหาเพลง</h2>
+    <p class="sub">ใช้ได้แม้ไม่มีใครสแกน QR — ค้นหาแล้วกด "เล่นเลย" หรือ "+ คิว" ได้จากจอหลักโดยตรง</p>
+    <div class="chip-section" id="host-suggested-section" style="display:none;">
+      <span class="chip-label">เพลงแนะนำ (แตะเพื่อค้นหาทันที)</span>
+      <div class="chip-row" id="host-suggested-chips"></div>
+    </div>
+    <div class="search-row">
+      <input type="text" id="host-search-input" placeholder="ค้นหาเพลง หรือวางลิงก์ YouTube">
+      <button id="btn-host-search">ค้นหา</button>
+    </div>
+    <p class="hint" id="host-search-hint"></p>
+    <div id="host-search-results"></div>
+    <div class="field" style="margin-top:16px;">
+      <label>YouTube Data API Key (สำหรับค้นหาด้วยคำ)</label>
+      <div class="new-pl-form">
+        <input type="text" id="host-api-key-input" placeholder="วาง API Key ที่นี่">
+        <button id="btn-host-save-key">บันทึก</button>
+      </div>
+    </div>
+    <div class="close-row">
+      <button class="icon-btn" id="btn-toggle-suggested">🎵 เพลงแนะนำ</button>
+      <button class="icon-btn" onclick="closeModal('search-modal')">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<!-- PLAYLIST MODAL -->
+<div class="modal-overlay hidden" id="playlist-modal">
+  <div class="modal">
+    <h2>เพลย์ลิสต์</h2>
+    <p class="sub">บันทึกคิวปัจจุบันเป็นเพลย์ลิสต์ หรือโหลดเพลย์ลิสต์เดิมกลับเข้าคิว</p>
+    <div class="new-pl-form">
+      <input type="text" id="new-pl-name" placeholder="ตั้งชื่อเพลย์ลิสต์ เช่น งานวันเกิด">
+      <button id="btn-save-pl">บันทึกคิวปัจจุบัน</button>
+    </div>
+    <div id="pl-list"></div>
+    <div class="pl-export-row">
+      <button class="icon-btn" id="btn-export-pl">⬇️ ส่งออกเพลย์ลิสต์ (.json)</button>
+      <button class="icon-btn" id="btn-import-pl">⬆️ นำเข้าเพลย์ลิสต์ (.json)</button>
+      <input type="file" id="import-pl-file" accept="application/json" style="display:none;">
+    </div>
+    <div class="close-row"><button class="icon-btn" onclick="closeModal('playlist-modal')">ปิด</button></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://www.youtube.com/iframe_api"></script>
+<script src="app.js"></script>
+</body>
+</html>
