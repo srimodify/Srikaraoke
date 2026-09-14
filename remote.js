@@ -19,6 +19,19 @@ const STORAGE_ROOMID = 'sriKaraoke_lastRoomId';
 const STORAGE_PIN = 'sriKaraoke_lastPin';
 const STORAGE_ADMINTOKEN = 'sriKaraoke_lastAdminToken';
 
+// Same extra STUN servers as the host, so connections have more paths to find each other across
+// different networks. See the note in app.js for how to add a TURN server if needed too.
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+    { urls: 'stun:global.stun.twilio.com:3478' }
+  ],
+  iceCandidatePoolSize: 10
+};
+
 let peer = null;
 let conn = null;
 let currentRoomId = null;
@@ -99,7 +112,7 @@ function connectToRoom(roomId, pin, adminToken, isReconnect){
     document.getElementById('connect-status').textContent = 'กำลังเชื่อมต่อ…';
   }
   if(peer){ try{ peer.destroy(); }catch(e){} }
-  peer = new Peer();
+  peer = new Peer(undefined, { config: ICE_CONFIG });
   peer.on('open', () => {
     conn = peer.connect(roomId, { reliable: true });
     conn.on('open', () => {
@@ -450,6 +463,9 @@ document.getElementById('btn-connect').onclick = () => {
   connectToRoom(roomId, pin, adminToken);
 };
 document.getElementById('search-input').addEventListener('keydown', (e) => { if(e.key === 'Enter') doSearch(); });
+document.getElementById('search-input').addEventListener('input', (e) => {
+  if(!e.target.value.trim()) document.getElementById('search-results').innerHTML = '';
+});
 document.getElementById('btn-search').onclick = doSearch;
 
 /* Auto-connect from ?room=/&pin=/&admintoken= params (QR scan), or resume the last room after a refresh */

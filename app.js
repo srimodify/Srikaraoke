@@ -602,6 +602,22 @@ function renderRoomQR(){
   });
 }
 
+// Extra STUN servers beyond PeerJS's default, so connections have more paths to find each other
+// across different networks. If phones still connect unreliably on strict networks (hotel/corporate
+// Wi-Fi, some mobile carriers), STUN alone often isn't enough — add a TURN server too. Free options:
+// sign up for a free tier at a service like metered.ca, Twilio, or Xirsys, then add a line like:
+// { urls: 'turn:YOUR_TURN_HOST:3478', username: 'YOUR_USERNAME', credential: 'YOUR_CREDENTIAL' }
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+    { urls: 'stun:global.stun.twilio.com:3478' }
+  ],
+  iceCandidatePoolSize: 10
+};
+
 function initPeer(){
   // Reuse the same room code (and PIN/admin-token settings) across a refresh within this browser
   // tab session, so the QR codes stay valid and connected phones can reconnect to the same room.
@@ -616,7 +632,7 @@ function initPeer(){
   sessionStorage.setItem(STORAGE_ADMINTOKEN, state.adminToken);
 
   const peerId = 'srikaraoke-' + code;
-  peer = new Peer(peerId);
+  peer = new Peer(peerId, { config: ICE_CONFIG });
 
   peer.on('open', (id) => {
     peerRetryCount = 0;
@@ -1006,6 +1022,54 @@ document.getElementById('btn-toggle-queue').onclick = () => {
   const btn = document.getElementById('btn-toggle-queue');
   btn.querySelector('.label').textContent = hidden ? 'แสดงคิว' : 'ซ่อนคิว';
 };
+
+/* ---------------- App-level fullscreen (the whole app UI, not YouTube's own fullscreen) ---------------- */
+function isFullscreen(){
+  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+}
+function requestFullscreenCompat(el){
+  const fn = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+  if(fn) return fn.call(el);
+}
+function exitFullscreenCompat(){
+  const fn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+  if(fn) return fn.call(document);
+}
+function updateFullscreenBtn(){
+  const btn = document.getElementById('btn-fullscreen');
+  btn.querySelector('.label').textContent = isFullscreen() ? 'ย่อจอ' : 'เต็มจอ';
+}
+document.getElementById('btn-fullscreen').onclick = () => {
+  if(isFullscreen()) exitFullscreenCompat();
+  else requestFullscreenCompat(document.documentElement);
+};
+['fullscreenchange', 'webkitfullscreenchange', 'msfullscreenchange'].forEach(evt => {
+  document.addEventListener(evt, updateFullscreenBtn);
+});
+
+/* ---------------- Tap-to-toggle header (like a video player's auto-hide controls) ---------------- */
+function setHeaderCollapsed(collapsed){
+  document.querySelector('header').classList.toggle('collapsed', collapsed);
+  document.getElementById('btn-toggle-header').textContent = collapsed ? '▼' : '▲';
+}
+function toggleHeaderCollapsed(){
+  setHeaderCollapsed(!document.querySelector('header').classList.contains('collapsed'));
+}
+document.getElementById('btn-toggle-header').onclick = toggleHeaderCollapsed;
+// Tapping the video area itself toggles the header too. A direct tap that lands on the YouTube
+// iframe can't be caught by a normal click listener (cross-origin iframes don't bubble clicks to
+// the parent page), so those taps are detected indirectly via the focus shift they cause instead.
+document.getElementById('idle-screen').addEventListener('click', (e) => {
+  if(e.target.id === 'btn-start-audio' || e.target.closest('#btn-start-audio')) return;
+  toggleHeaderCollapsed();
+});
+document.getElementById('now-playing-bar').addEventListener('click', toggleHeaderCollapsed);
+document.getElementById('next-up-bar').addEventListener('click', toggleHeaderCollapsed);
+window.addEventListener('blur', () => {
+  if(ytPlayer && typeof ytPlayer.getIframe === 'function' && document.activeElement === ytPlayer.getIframe()){
+    toggleHeaderCollapsed();
+  }
+});
 document.getElementById('btn-skip').onclick = skip;
 document.getElementById('btn-prev').onclick = prevSong;
 document.getElementById('btn-playpause').onclick = togglePlayPause;
@@ -1027,6 +1091,9 @@ document.getElementById('import-pl-file').addEventListener('change', (e) => {
   e.target.value = '';
 });
 document.getElementById('host-search-input').addEventListener('keydown', (e) => { if(e.key === 'Enter') doHostSearch(); });
+document.getElementById('host-search-input').addEventListener('input', (e) => {
+  if(!e.target.value.trim()) document.getElementById('host-search-results').innerHTML = '';
+});
 document.getElementById('btn-host-search').onclick = doHostSearch;
 document.getElementById('host-api-key-input').value = getApiKey();
 document.getElementById('btn-host-save-key').onclick = () => {
