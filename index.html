@@ -75,6 +75,23 @@ header.collapsed{
 }
 .header-toggle-bar button:hover{color:var(--text);}
 .header-toggle-bar button:focus-visible{outline:2px solid var(--gold);}
+
+#chord-bar{
+  flex-shrink:0;
+  display:flex;
+  align-items:baseline;
+  gap:18px;
+  padding:10px 24px;
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
+}
+.chord-current{
+  font-family:'Kanit',sans-serif;font-weight:700;font-size:32px;color:var(--gold);
+  text-shadow:0 0 20px rgba(255,200,87,.4);
+  flex-shrink:0;
+}
+.chord-next-list{display:flex;align-items:baseline;gap:14px;overflow:hidden;}
+.chord-next{font-family:'Kanit',sans-serif;font-weight:600;font-size:18px;color:var(--text-dim);flex-shrink:0;}
 .brand{
   display:flex;
   align-items:center;
@@ -710,6 +727,39 @@ main.queue-hidden #player-section{flex:1 1 100%;}
 .pl-export-row{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
 .pl-export-row .icon-btn{flex:1;justify-content:center;font-size:13px;}
 
+/* ---------- chords modal ---------- */
+.mode-tabs{display:flex;gap:8px;margin-bottom:14px;}
+.mode-tab{
+  flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text-dim);
+  border-radius:10px;padding:9px 0;font-size:14px;font-family:inherit;cursor:pointer;
+}
+.mode-tab.active{background:var(--gold);color:#1B1533;border-color:var(--gold);font-weight:600;}
+.mode-tab:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+.chord-format-hint{
+  background:var(--panel-2);border-left:3px solid var(--teal);border-radius:10px;
+  padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:var(--text-dim);line-height:1.7;
+}
+.chord-format-hint code{
+  background:rgba(0,0,0,.25);color:var(--teal);padding:2px 6px;border-radius:6px;
+  font-family:'Kanit',monospace;font-size:12px;display:inline-block;margin-top:4px;line-height:1.6;
+}
+#chord-input-simple textarea, #chord-input-timed textarea{
+  width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:10px;padding:10px 12px;font-size:14px;font-family:'Kanit',monospace;
+  resize:vertical;box-sizing:border-box;
+}
+#chord-input-simple textarea:focus-visible, #chord-input-timed textarea:focus-visible{outline:2px solid var(--gold);}
+.chord-seconds-label{
+  display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--text-dim);
+}
+.chord-seconds-label input{
+  width:60px;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;
+}
+.chord-library{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);}
+.chord-library h3{margin:0 0 10px;font-size:15px;}
+#btn-chords-save:disabled, #btn-chords-delete:disabled{opacity:.4;cursor:not-allowed;}
+
 /* ---------- PORTRAIT LAYOUT ---------- */
 @media (orientation: portrait){
   main{flex-direction:column;}
@@ -838,6 +888,7 @@ main.queue-hidden #player-section{flex:1 1 100%;}
     <div class="header-actions">
       <button class="icon-btn" id="btn-search"><span>🔎</span><span class="label">ค้นหาเพลง</span></button>
       <button class="icon-btn" id="btn-history"><span>🕘</span><span class="label">ประวัติ</span></button>
+      <button class="icon-btn" id="btn-chords"><span>🎸</span><span class="label">คอร์ด</span></button>
       <button class="icon-btn" id="btn-playlist"><span>📁</span><span class="label">เพลย์ลิสต์</span></button>
       <button class="icon-btn accent" id="btn-qr"><span>📱</span><span class="label">รีโมทมือถือ</span></button>
       <button class="icon-btn" id="btn-toggle-queue"><span>🗂️</span><span class="label">ซ่อนคิว</span></button>
@@ -847,6 +898,7 @@ main.queue-hidden #player-section{flex:1 1 100%;}
   <div class="header-toggle-bar">
     <button id="btn-toggle-header" title="ซ่อน/แสดงเมนู">▲</button>
   </div>
+  <div id="chord-bar" style="display:none;"></div>
 
   <main id="main-content">
     <section id="player-section">
@@ -1017,14 +1069,58 @@ main.queue-hidden #player-section{flex:1 1 100%;}
     </div>
     <div id="pl-list"></div>
     <div class="pl-export-row">
-      <button class="icon-btn" id="btn-export-pl">⬇️ ส่งออกเพลย์ลิสต์ (.json)</button>
-      <button class="icon-btn" id="btn-import-pl">⬆️ นำเข้าเพลย์ลิสต์ (.json)</button>
+      <button class="icon-btn" id="btn-export-pl">⬇️ สำรองข้อมูลทั้งหมด (.json)</button>
+      <button class="icon-btn" id="btn-import-pl">⬆️ กู้คืนข้อมูล (.json)</button>
       <input type="file" id="import-pl-file" accept="application/json" style="display:none;">
     </div>
+    <p class="hint" style="margin-top:8px;">สำรอง/กู้คืนครอบคลุม <strong>เพลย์ลิสต์ + ประวัติเพลง + คอร์ดเพลง</strong> ในไฟล์เดียวกัน</p>
     <div class="close-row"><button class="icon-btn" onclick="closeModal('playlist-modal')">ปิด</button></div>
   </div>
 </div>
 
+<!-- CHORDS MODAL -->
+<div class="modal-overlay hidden" id="chords-modal">
+  <div class="modal">
+    <h2>คอร์ดเพลง</h2>
+    <p class="sub" id="chords-song-title">—</p>
+
+    <div class="mode-tabs">
+      <button type="button" class="mode-tab active" data-mode="simple">โหมดง่าย</button>
+      <button type="button" class="mode-tab" data-mode="timed">โหมดละเอียด</button>
+    </div>
+
+    <div class="chord-format-hint" id="chord-hint-simple">
+      พิมพ์คอร์ดเรียงตามลำดับที่เปลี่ยน คั่นด้วยช่องว่าง ระบบจะแบ่งเวลาให้แต่ละคอร์ดเท่าๆ กันอัตโนมัติ<br>
+      ตัวอย่าง: <code>C G Am F C G F G</code>
+    </div>
+    <div class="chord-format-hint" id="chord-hint-timed" style="display:none;">
+      พิมพ์เวลา (นาที:วินาที) ตามด้วยคอร์ด บรรทัดละ 1 คอร์ด เรียงตามเวลา<br>
+      ตัวอย่าง:<br>
+      <code>0:00 C<br>0:04 G<br>0:08 Am<br>0:12 F</code>
+    </div>
+
+    <div id="chord-input-simple">
+      <textarea id="chord-input-simple-text" placeholder="C G Am F C G F G" rows="3"></textarea>
+      <label class="chord-seconds-label">วินาทีต่อคอร์ด
+        <input type="number" id="chord-seconds-per" value="4" min="1" max="60">
+      </label>
+    </div>
+    <div id="chord-input-timed" style="display:none;">
+      <textarea id="chord-input-timed-text" placeholder="0:00 C&#10;0:04 G&#10;0:08 Am" rows="8"></textarea>
+    </div>
+
+    <div class="close-row">
+      <button class="icon-btn" id="btn-chords-delete">ลบคอร์ดเพลงนี้</button>
+      <button class="icon-btn" onclick="closeModal('chords-modal')">ปิด</button>
+      <button class="icon-btn accent" id="btn-chords-save">บันทึก</button>
+    </div>
+
+    <div class="chord-library">
+      <h3>คลังคอร์ดที่บันทึกไว้ (<span id="chord-count">0</span>)</h3>
+      <div id="chord-library-list"></div>
+    </div>
+  </div>
+</div>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://www.youtube.com/iframe_api"></script>

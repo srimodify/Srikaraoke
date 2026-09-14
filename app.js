@@ -14,6 +14,7 @@ function getApiKey(){
 function setApiKey(key){ localStorage.setItem(STORAGE_APIKEY, key); }
 const STORAGE_HISTORY = 'sriKaraoke_history';
 const STORAGE_SCORES = 'sriKaraoke_scores';
+const STORAGE_CHORDS = 'sriKaraoke_chords';
 const TEMPO_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 const state = {
@@ -26,6 +27,7 @@ const state = {
   playlists: loadPlaylists(),
   history: loadHistory(),
   scores: loadScores(),
+  chords: loadChords(),
   pinEnabled: false,
   pin: '',
   fairQueueMode: sessionStorage.getItem('sriKaraoke_fairMode') === '1'
@@ -64,6 +66,14 @@ function loadScores(){
   catch(e){ return []; }
 }
 function saveScores(){ localStorage.setItem(STORAGE_SCORES, JSON.stringify(state.scores)); }
+
+function loadChords(){
+  try{
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_CHORDS));
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+  }catch(e){ return {}; }
+}
+function saveChordsStorage(){ localStorage.setItem(STORAGE_CHORDS, JSON.stringify(state.chords)); }
 
 function addToHistory(song, reason){
   state.history.unshift({
@@ -343,6 +353,7 @@ function renderNowPlaying(){
     nextBar.style.display = 'none';
   }
   document.getElementById('btn-playpause').textContent = state.isPlaying ? '⏸ หยุด' : '▶ เล่น';
+  renderChordBar();
 }
 
 function renderTempo(){
@@ -512,6 +523,129 @@ function toggleMute(){
   if(ytReady && ytPlayer){ state.muted ? ytPlayer.mute() : ytPlayer.unMute(); }
   renderVolume();
   broadcastState();
+}
+
+/* ---------------- Chords (host only, saved per YouTube video) ---------------- */
+let chordTargetVideoId = null;
+let chordTargetTitle = '';
+
+function parseSimpleChords(text, secondsPerChord){
+  const chords = text.trim().split(/\s+/).filter(Boolean);
+  return chords.map((chord, i) => ({ t: i * secondsPerChord, chord }));
+}
+function parseTimedChords(text){
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const timeline = [];
+  lines.forEach(line => {
+    let m = line.match(/^(\d+):(\d{1,2})\s+(.+)$/);
+    if(m){
+      timeline.push({ t: parseInt(m[1], 10) * 60 + parseInt(m[2], 10), chord: m[3].trim() });
+      return;
+    }
+    m = line.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
+    if(m) timeline.push({ t: parseFloat(m[1]), chord: m[2].trim() });
+  });
+  timeline.sort((a, b) => a.t - b.t);
+  return timeline;
+}
+
+function renderChordBar(){
+  const bar = document.getElementById('chord-bar');
+  const song = currentSong();
+  const entry = song ? state.chords[song.videoId] : null;
+  if(!song || !entry || !entry.timeline || entry.timeline.length === 0 || !ytPlayer || !ytReady){
+    bar.style.display = 'none';
+    return;
+  }
+  let curTime = 0;
+  try{ curTime = ytPlayer.getCurrentTime() || 0; }catch(e){}
+  const timeline = entry.timeline;
+  let idx = -1;
+  for(let i = 0; i < timeline.length; i++){
+    if(timeline[i].t <= curTime) idx = i; else break;
+  }
+  if(idx === -1){ bar.style.display = 'none'; return; }
+  const current = timeline[idx];
+  const upcoming = timeline.slice(idx + 1, idx + 4);
+  bar.innerHTML = `
+    <span class="chord-current">${escapeHtml(current.chord)}</span>
+    <div class="chord-next-list">${upcoming.map(u => `<span class="chord-next">${escapeHtml(u.chord)}</span>`).join('')}</div>`;
+  bar.style.display = 'flex';
+}
+setInterval(renderChordBar, 500);
+
+function setChordMode(mode){
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+  document.getElementById('chord-hint-simple').style.display = mode === 'simple' ? 'block' : 'none';
+  document.getElementById('chord-hint-timed').style.display = mode === 'timed' ? 'block' : 'none';
+  document.getElementById('chord-input-simple').style.display = mode === 'simple' ? 'block' : 'none';
+  document.getElementById('chord-input-timed').style.display = mode === 'timed' ? 'block' : 'none';
+}
+
+function loadChordFormForTarget(){
+  const titleEl = document.getElementById('chords-song-title');
+  const saveBtn = document.getElementById('btn-chords-save');
+  const delBtn = document.getElementById('btn-chords-delete');
+  if(!chordTargetVideoId){
+    titleEl.textContent = 'เล่นเพลง หรือเลือก "แก้ไข" จากคลังคอร์ดด้านล่างเพื่อเริ่มเพิ่มคอร์ด';
+    document.getElementById('chord-input-simple-text').value = '';
+    document.getElementById('chord-input-timed-text').value = '';
+    saveBtn.disabled = true;
+    delBtn.disabled = true;
+    return;
+  }
+  titleEl.textContent = '🎵 ' + chordTargetTitle;
+  saveBtn.disabled = false;
+  const existing = state.chords[chordTargetVideoId];
+  delBtn.disabled = !existing;
+  if(existing){
+    setChordMode(existing.mode);
+    if(existing.mode === 'simple'){
+      document.getElementById('chord-input-simple-text').value = existing.raw || '';
+      document.getElementById('chord-seconds-per').value = existing.secondsPerChord || 4;
+    } else {
+      document.getElementById('chord-input-timed-text').value = existing.raw || '';
+    }
+  } else {
+    document.getElementById('chord-input-simple-text').value = '';
+    document.getElementById('chord-input-timed-text').value = '';
+    document.getElementById('chord-seconds-per').value = 4;
+    setChordMode('simple');
+  }
+}
+
+function renderChordLibrary(){
+  const wrap = document.getElementById('chord-library-list');
+  const keys = Object.keys(state.chords);
+  document.getElementById('chord-count').textContent = keys.length;
+  if(keys.length === 0){
+    wrap.innerHTML = '<div class="empty-note">ยังไม่มีคอร์ดที่บันทึกไว้</div>';
+    return;
+  }
+  wrap.innerHTML = '';
+  keys.forEach(vid => {
+    const entry = state.chords[vid];
+    const row = document.createElement('div');
+    row.className = 'pl-row';
+    row.innerHTML = `
+      <div class="name">${escapeHtml(entry.title || vid)}</div>
+      <div class="count">${entry.mode === 'timed' ? 'โหมดละเอียด' : 'โหมดง่าย'} · ${entry.timeline.length} คอร์ด</div>
+      <button data-act="edit">แก้ไข</button>`;
+    row.querySelector('[data-act="edit"]').onclick = () => {
+      chordTargetVideoId = vid;
+      chordTargetTitle = entry.title || vid;
+      loadChordFormForTarget();
+    };
+    wrap.appendChild(row);
+  });
+}
+
+function openChordsModal(){
+  const song = currentSong();
+  if(song){ chordTargetVideoId = song.videoId; chordTargetTitle = song.title; }
+  renderChordLibrary();
+  loadChordFormForTarget();
+  openModal('chords-modal');
 }
 
 /* ---------------- YouTube ---------------- */
@@ -810,44 +944,109 @@ function savePlaylistFromQueue(name){
   renderPlaylists();
 }
 
-function exportPlaylists(){
-  if(Object.keys(state.playlists).length === 0){
-    showToast('ยังไม่มีเพลย์ลิสต์ให้ส่งออก', true);
+function exportBackup(){
+  const hasData = Object.keys(state.playlists).length > 0 || state.history.length > 0 || Object.keys(state.chords).length > 0;
+  if(!hasData){
+    showToast('ยังไม่มีข้อมูลให้สำรอง', true);
     return;
   }
-  const blob = new Blob([JSON.stringify(state.playlists, null, 2)], { type: 'application/json' });
+  const payload = {
+    type: 'sri-karaoke-backup',
+    version: 1,
+    exportedAt: Date.now(),
+    playlists: state.playlists,
+    history: state.history,
+    chords: state.chords
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'sri-karaoke-playlists.json';
+  a.download = 'sri-karaoke-backup.json';
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
 }
 
-function importPlaylistsFromFile(file){
+function importBackupFromFile(file){
   const reader = new FileReader();
   reader.onload = (e) => {
     try{
       const data = JSON.parse(e.target.result);
       if(typeof data !== 'object' || data === null || Array.isArray(data)) throw new Error('bad format');
-      let count = 0;
-      Object.keys(data).forEach(name => {
-        const songs = data[name];
-        if(!Array.isArray(songs)) return;
-        const cleaned = songs
-          .filter(s => s && s.videoId && s.title)
-          .map(s => ({ videoId: s.videoId, title: s.title, thumbnail: s.thumbnail || '', by: s.by || '' }));
-        if(cleaned.length === 0) return;
-        const finalName = state.playlists[name] ? name + ' (นำเข้า)' : name;
-        state.playlists[finalName] = cleaned;
-        count++;
-      });
-      if(count === 0) throw new Error('no valid playlists');
+
+      let plCount = 0, histCount = 0, chordCount = 0, chordSkipped = 0;
+
+      // Playlists — also accepts an older playlists-only export file (no "type"/"playlists" wrapper).
+      const plSource = (data.playlists && typeof data.playlists === 'object' && !Array.isArray(data.playlists))
+        ? data.playlists
+        : (!data.type && !data.history && !data.chords ? data : null);
+      if(plSource){
+        Object.keys(plSource).forEach(name => {
+          const songs = plSource[name];
+          if(!Array.isArray(songs)) return;
+          const cleaned = songs
+            .filter(s => s && s.videoId && s.title)
+            .map(s => ({ videoId: s.videoId, title: s.title, thumbnail: s.thumbnail || '', by: s.by || '' }));
+          if(cleaned.length === 0) return;
+          const finalName = state.playlists[name] ? name + ' (นำเข้า)' : name;
+          state.playlists[finalName] = cleaned;
+          plCount++;
+        });
+      }
+
+      // History — merged in alongside existing entries, newest first, capped at 200.
+      if(Array.isArray(data.history)){
+        data.history.forEach(h => {
+          if(h && h.videoId && h.title){
+            state.history.push({
+              id: uid(), videoId: h.videoId, title: h.title, thumbnail: h.thumbnail || '',
+              by: h.by || '', reason: h.reason || '', playedAt: h.playedAt || Date.now()
+            });
+            histCount++;
+          }
+        });
+        state.history.sort((a, b) => b.playedAt - a.playedAt);
+        if(state.history.length > 200) state.history.length = 200;
+      }
+
+      // Chords — only added for songs that don't already have chords saved locally, so importing
+      // never silently overwrites chords you've already worked out.
+      if(data.chords && typeof data.chords === 'object' && !Array.isArray(data.chords)){
+        Object.keys(data.chords).forEach(vid => {
+          const entry = data.chords[vid];
+          if(!entry || !Array.isArray(entry.timeline) || entry.timeline.length === 0) return;
+          if(state.chords[vid]){ chordSkipped++; return; }
+          state.chords[vid] = {
+            title: entry.title || vid,
+            mode: entry.mode === 'timed' ? 'timed' : 'simple',
+            raw: entry.raw || '',
+            secondsPerChord: entry.secondsPerChord || null,
+            timeline: entry.timeline
+              .filter(t => t && typeof t.t === 'number' && t.chord)
+              .map(t => ({ t: t.t, chord: String(t.chord) })),
+            savedAt: entry.savedAt || Date.now()
+          };
+          chordCount++;
+        });
+      }
+
+      if(plCount === 0 && histCount === 0 && chordCount === 0) throw new Error('nothing to import');
+
       savePlaylists();
+      saveHistory();
+      saveChordsStorage();
       renderPlaylists();
-      showToast(`นำเข้าเพลย์ลิสต์สำเร็จ ${count} รายการ`);
+      renderChordLibrary();
+
+      const parts = [];
+      if(plCount) parts.push(`เพลย์ลิสต์ ${plCount}`);
+      if(histCount) parts.push(`ประวัติ ${histCount} รายการ`);
+      if(chordCount) parts.push(`คอร์ด ${chordCount} เพลง`);
+      let msg = 'นำเข้าสำเร็จ: ' + parts.join(', ');
+      if(chordSkipped) msg += ` (ข้ามคอร์ด ${chordSkipped} เพลงที่มีอยู่แล้ว)`;
+      showToast(msg);
     }catch(err){
       showToast('นำเข้าไฟล์ไม่สำเร็จ — รูปแบบไฟล์ไม่ถูกต้อง', true);
     }
@@ -978,6 +1177,40 @@ document.getElementById('btn-toggle-suggested').onclick = () => {
   section.style.display = showing ? 'none' : 'block';
 };
 document.getElementById('btn-history').onclick = () => { renderHistory(); openModal('history-modal'); };
+document.getElementById('btn-chords').onclick = openChordsModal;
+document.querySelectorAll('.mode-tab').forEach(tab => {
+  tab.onclick = () => setChordMode(tab.dataset.mode);
+});
+document.getElementById('btn-chords-save').onclick = () => {
+  if(!chordTargetVideoId) return;
+  const mode = document.querySelector('.mode-tab.active').dataset.mode;
+  let timeline, raw, secondsPerChord = null;
+  if(mode === 'simple'){
+    raw = document.getElementById('chord-input-simple-text').value.trim();
+    secondsPerChord = parseFloat(document.getElementById('chord-seconds-per').value) || 4;
+    timeline = parseSimpleChords(raw, secondsPerChord);
+  } else {
+    raw = document.getElementById('chord-input-timed-text').value.trim();
+    timeline = parseTimedChords(raw);
+  }
+  if(!raw || timeline.length === 0){
+    showToast('กรุณาพิมพ์คอร์ดก่อนบันทึก', true);
+    return;
+  }
+  state.chords[chordTargetVideoId] = { title: chordTargetTitle, mode, raw, secondsPerChord, timeline, savedAt: Date.now() };
+  saveChordsStorage();
+  renderChordLibrary();
+  loadChordFormForTarget();
+  showToast('บันทึกคอร์ดแล้ว');
+};
+document.getElementById('btn-chords-delete').onclick = () => {
+  if(!chordTargetVideoId || !state.chords[chordTargetVideoId]) return;
+  delete state.chords[chordTargetVideoId];
+  saveChordsStorage();
+  renderChordLibrary();
+  loadChordFormForTarget();
+  showToast('ลบคอร์ดเพลงนี้แล้ว');
+};
 document.getElementById('btn-clear-history').onclick = () => {
   if(confirm('ล้างประวัติเพลงที่เล่นไปแล้วทั้งหมด?')) clearHistory();
 };
@@ -1083,11 +1316,11 @@ document.getElementById('btn-save-pl').onclick = () => {
   savePlaylistFromQueue(input.value.trim());
   input.value = '';
 };
-document.getElementById('btn-export-pl').onclick = exportPlaylists;
+document.getElementById('btn-export-pl').onclick = exportBackup;
 document.getElementById('btn-import-pl').onclick = () => document.getElementById('import-pl-file').click();
 document.getElementById('import-pl-file').addEventListener('change', (e) => {
   const file = e.target.files[0];
-  if(file) importPlaylistsFromFile(file);
+  if(file) importBackupFromFile(file);
   e.target.value = '';
 });
 document.getElementById('host-search-input').addEventListener('keydown', (e) => { if(e.key === 'Enter') doHostSearch(); });
