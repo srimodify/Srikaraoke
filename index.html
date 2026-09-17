@@ -436,21 +436,31 @@ body.power-saving #next-up-bar{ animation: none !important; opacity:1 !important
 .lb-score{font-family:'Kanit',sans-serif;font-weight:700;font-size:20px;color:var(--gold);}
 
 #chord-bar{
-  flex-shrink:0;
-  display:flex;
-  align-items:baseline;
-  gap:18px;
-  padding:10px 24px;
-  background:var(--panel);
-  border-bottom:1px solid var(--line);
+  position:absolute;top:0;left:0;right:0;
+  height:52px;
+  overflow:hidden;
+  background:rgba(27,21,51,.35);
+  pointer-events:none;
+  z-index:2;
 }
-.chord-current{
-  font-family:'Kanit',sans-serif;font-weight:700;font-size:32px;color:var(--gold);
-  text-shadow:0 0 20px rgba(255,200,87,.4);
-  flex-shrink:0;
+.chord-track{position:relative;width:100%;height:100%;}
+.chord-segment{
+  position:absolute;top:0;height:100%;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Kanit',sans-serif;font-weight:600;font-size:14px;
+  color:rgba(255,255,255,.55);
+  border-right:1px solid rgba(255,255,255,.12);
+  transition:color .25s, background-color .25s, font-size .25s;
+  white-space:nowrap;overflow:hidden;
+  box-sizing:border-box;
 }
-.chord-next-list{display:flex;align-items:baseline;gap:14px;overflow:hidden;}
-.chord-next{font-family:'Kanit',sans-serif;font-weight:600;font-size:18px;color:var(--text-dim);flex-shrink:0;}
+.chord-segment.current{
+  color:#fff;
+  font-weight:700;
+  font-size:20px;
+  background:rgba(255,200,87,.3);
+  text-shadow:0 2px 8px rgba(0,0,0,.7);
+}
 
 #next-up-bar{
   position:absolute;top:0;left:0;right:0;
@@ -805,6 +815,9 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
 .qr-section-admin #qrcode-admin{
   display:flex;justify-content:center;background:#fff;padding:16px;border-radius:14px;margin:0 auto 10px;width:fit-content;
 }
+#qrcode-screen2{
+  display:flex;justify-content:center;background:#fff;padding:16px;border-radius:14px;margin:0 auto 16px;width:fit-content;
+}
 
 /* playlist modal */
 .pl-row{
@@ -1044,7 +1057,6 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
     </div>
   </header>
   <button class="header-toggle-btn" id="btn-toggle-header" title="ซ่อน/แสดงเมนู">▲</button>
-  <div id="chord-bar" style="display:none;"></div>
 
   <main id="main-content">
     <section id="player-section">
@@ -1077,6 +1089,9 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
             <div class="display empty-queue-blink" id="idle-empty-queue-msg" style="display:none;">⚠️ ไม่มีเพลงในคิว...กรุณาเลือกเพลง</div>
           </div>
         </div>
+      </div>
+      <div id="chord-bar" style="display:none;">
+        <div class="chord-track" id="chord-track"></div>
       </div>
       <div id="next-up-bar" style="display:none;"></div>
       <div id="now-playing-bar" style="display:none;">
@@ -1169,7 +1184,13 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
     <h2>🖥️ จอที่ 2</h2>
     <p class="sub">สแกนจากอุปกรณ์/จอที่จะใช้เป็นจอแสดงผลเสริม — แสดงวิดีโอเต็มจอ ชื่อเพลง เพลงถัดไป และคะแนน ไม่มีปุ่มควบคุมใดๆ ปลอดภัยที่จะเปิดทิ้งไว้ได้ทั้งงาน</p>
     <div id="qrcode-screen2"></div>
+    <div class="room-code" id="screen2-room-code-text">------</div>
     <div class="room-url" id="screen2-room-url-text"></div>
+    <div id="screen2-pin-display-row" style="display:none;justify-content:center;align-items:center;gap:8px;margin-top:8px;color:var(--text-dim);font-size:14px;">
+      <span>รหัส PIN:</span>
+      <span class="pin-value" id="screen2-pin-value">----</span>
+    </div>
+    <p class="hint" style="margin-top:12px;">ไม่มีกล้อง/สแกนไม่ได้? เปิดหน้าจอที่ 2 เอง แล้วพิมพ์ "รหัสห้อง" (และ PIN ถ้ามี) ด้านบนด้วยตัวเองได้เลย</p>
     <div class="close-row"><button class="icon-btn" onclick="closeModal('qr-screen2-modal')">ปิด</button></div>
   </div>
 </div>
@@ -1271,6 +1292,18 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
   </div>
 </div>
 
+<!-- LOGOUT CONFIRM MODAL -->
+<div class="modal-overlay hidden" id="logout-confirm-modal">
+  <div class="modal" style="max-width:360px;text-align:center;">
+    <h2>🚪 ออกจากระบบ</h2>
+    <p class="sub" style="text-align:center;">ต้องการออกจากระบบใช่หรือไม่? การเล่นเพลงและการเชื่อมต่อกับรีโมท/จอที่ 2 ทั้งหมดจะหยุดลงทันที</p>
+    <div class="close-row" style="justify-content:center;">
+      <button class="icon-btn" id="btn-logout-cancel">ยกเลิก</button>
+      <button class="icon-btn accent" id="btn-logout-confirm">ออกจากระบบ</button>
+    </div>
+  </div>
+</div>
+
 <!-- SETTINGS MODAL -->
 <div class="modal-overlay hidden" id="settings-modal">
   <div class="modal">
@@ -1308,7 +1341,6 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
         </div>
         <button class="icon-btn" id="btn-screen2-toggle">ปิด</button>
       </div>
-      <button class="icon-btn settings-btn" id="btn-screen2-qr" style="display:none;margin-top:10px;"><span>📺</span> แสดง QR จอที่ 2</button>
       <p class="hint" style="margin-top:8px;">ไม่มีกล้อง/สแกน QR ไม่ได้? เปิดหน้าจอที่ 2 แล้วพิมพ์ "รหัสห้อง" กับ "PIN" ตัวเดียวกับที่โชว์อยู่ในส่วนรีโมทผู้ใช้ทั่วไปด้านบนได้เลย ไม่ต้องใช้กล้องเลย</p>
       <div class="settings-toggle-row" id="audio-output-row" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
         <div>

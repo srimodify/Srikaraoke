@@ -31,6 +31,11 @@ let ytPlayer = null;
 let ytReady = false;
 let myQueue = [];
 let myCurrentId = null;
+let myChords = {};
+function songChordKey(song){
+  if(!song) return null;
+  return song.source === 'local' ? 'local:' + song.localFileId : 'yt:' + song.videoId;
+}
 
 if(location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
   document.getElementById('https-warning').style.display = 'block';
@@ -132,6 +137,10 @@ function handleHostMessage(msg){
     applyAudioFromHost(msg.output, msg.volume, msg.muted);
     return;
   }
+  if(msg.type === 'CHORDS_LIBRARY'){
+    myChords = msg.chords || {};
+    return;
+  }
   if(msg.type === 'SCORE_ANNOUNCE'){
     showScorePopup(msg.entry, msg.leaderboard);
   }
@@ -196,6 +205,27 @@ function applyVideoState(currentId, currentTime){
 
 /* ---------------- Display: now playing / idle / next up ---------------- */
 let hasEverPlayed = false; // welcome message only shows before the first song this session; after that, an empty queue shows the blinking prompt instead
+
+// Same right-to-left scrolling ticker as the main screen, at the same font size. Only restarts when
+// the song actually changes — renderDisplay() runs every second (for the next-up countdown), so this
+// guards against resetting the scroll position on every tick, which would stop it from ever scrolling.
+let lastMarqueeSongId = null;
+function updateNowPlayingMarquee(song){
+  const textEl = document.getElementById('d-np-marquee-text');
+  if(!song){
+    textEl.style.animation = 'none';
+    lastMarqueeSongId = null;
+    return;
+  }
+  if(song.id === lastMarqueeSongId) return;
+  lastMarqueeSongId = song.id;
+  textEl.textContent = '🎤 กำลังเล่นเพลงนี้: ' + song.title + (song.by ? ' • เพิ่มโดย ' + song.by : '');
+  textEl.style.animation = 'none';
+  void textEl.offsetWidth; // force reflow so the browser "forgets" the previous animation state
+  const duration = Math.max(10, textEl.textContent.length * 0.35);
+  textEl.style.animation = `np-marquee-rtl ${duration}s linear infinite`;
+}
+
 function renderDisplay(){
   const song = myQueue.find(s => s.id === myCurrentId);
   const idle = document.getElementById('d-idle');
@@ -217,8 +247,7 @@ function renderDisplay(){
     idleTitle.innerHTML = '🔊 กำลังเล่นจากอุปกรณ์ที่จอหลัก';
     idleDesc.textContent = 'ไฟล์เพลงในเครื่องเล่นได้เฉพาะที่จอหลักเท่านั้น';
     npBar.style.display = 'block';
-    document.getElementById('d-np-title').textContent = song.title;
-    document.getElementById('d-np-by').textContent = song.by ? 'เพิ่มโดย ' + song.by : '';
+    updateNowPlayingMarquee(song);
     nextBar.style.display = 'none'; // no reliable playback-position info available for local files here
     return;
   }
@@ -228,8 +257,7 @@ function renderDisplay(){
   if(song){
     idle.style.display = 'none';
     npBar.style.display = 'block';
-    document.getElementById('d-np-title').textContent = song.title;
-    document.getElementById('d-np-by').textContent = song.by ? 'เพิ่มโดย ' + song.by : '';
+    updateNowPlayingMarquee(song);
 
     const idx = myQueue.findIndex(s => s.id === myCurrentId);
     const upcoming = idx > -1 ? myQueue[idx + 1] : null;
@@ -258,6 +286,7 @@ function renderDisplay(){
     idle.style.display = 'flex';
     npBar.style.display = 'none';
     nextBar.style.display = 'none';
+    updateNowPlayingMarquee(null);
     if(hasEverPlayed){
       idleTitle.style.display = 'none';
       idleDesc.style.display = 'none';
@@ -270,6 +299,51 @@ function renderDisplay(){
   }
 }
 setInterval(renderDisplay, 1000);
+
+/* ---------------- Chords (mirrors the host's chord bar, using this page's own YouTube player for timing) ---------------- */
+function renderChordBar(){
+  const bar = document.getElementById('d-chord-bar');
+  const track = document.getElementById('d-chord-track');
+  const nextBar = document.getElementById('d-next-up');
+  if(!bar || !track) return;
+  const song = myQueue.find(s => s.id === myCurrentId);
+  const key = songChordKey(song);
+  const entry = key ? myChords[key] : null;
+  if(!song || !entry || !entry.timeline || entry.timeline.length === 0){
+    bar.style.display = 'none';
+    if(nextBar) nextBar.style.top = '0';
+    return;
+  }
+  let curTime = 0, duration = 0;
+  if(ytReady && ytPlayer){
+    try{ curTime = ytPlayer.getCurrentTime() || 0; duration = ytPlayer.getDuration() || 0; }catch(e){}
+  }
+  const timeline = entry.timeline;
+  const totalSpan = Math.max(duration || 0, timeline[timeline.length - 1].t + 8);
+
+  if(track.dataset.forKey !== key){
+    track.dataset.forKey = key;
+    track.innerHTML = timeline.map((c, i) => {
+      const start = c.t;
+      const end = (i < timeline.length - 1) ? timeline[i + 1].t : totalSpan;
+      const leftPct = (start / totalSpan) * 100;
+      const widthPct = Math.max(0, ((end - start) / totalSpan) * 100);
+      return `<div class="chord-segment" data-idx="${i}" style="left:${leftPct}%;width:${widthPct}%;">${escapeHtml(c.chord)}</div>`;
+    }).join('');
+  }
+
+  let idx = -1;
+  for(let i = 0; i < timeline.length; i++){
+    if(timeline[i].t <= curTime) idx = i; else break;
+  }
+  if(idx === -1){ bar.style.display = 'none'; if(nextBar) nextBar.style.top = '0'; return; }
+  track.querySelectorAll('.chord-segment').forEach(el => {
+    el.classList.toggle('current', parseInt(el.dataset.idx, 10) === idx);
+  });
+  bar.style.display = 'block';
+  if(nextBar) nextBar.style.top = '52px';
+}
+setInterval(renderChordBar, 500);
 
 /* ---------------- Singing score popup (mirrors host/remote) ---------------- */
 let scorePopupTimer = null;

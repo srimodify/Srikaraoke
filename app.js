@@ -491,26 +491,46 @@ function parseTimedChords(text){
 
 function renderChordBar(){
   const bar = document.getElementById('chord-bar');
+  const track = document.getElementById('chord-track');
+  const nextBar = document.getElementById('next-up-bar');
   const song = currentSong();
   const key = songChordKey(song);
   const entry = key ? state.chords[key] : null;
   if(!song || !entry || !entry.timeline || entry.timeline.length === 0){
     bar.style.display = 'none';
+    nextBar.style.top = '0';
     return;
   }
-  const { currentTime: curTime } = getPlaybackTimes();
+  const { currentTime: curTime, duration } = getPlaybackTimes();
   const timeline = entry.timeline;
+  const totalSpan = Math.max(duration || 0, timeline[timeline.length - 1].t + 8);
+
+  // Only rebuild the segment strip when the song (or its chord data) actually changes — not on every
+  // tick — so the highlight can just slide between existing segments instead of the whole bar flashing.
+  if(track.dataset.forKey !== key){
+    track.dataset.forKey = key;
+    track.innerHTML = timeline.map((c, i) => {
+      const start = c.t;
+      const end = (i < timeline.length - 1) ? timeline[i + 1].t : totalSpan;
+      const leftPct = (start / totalSpan) * 100;
+      const widthPct = Math.max(0, ((end - start) / totalSpan) * 100);
+      return `<div class="chord-segment" data-idx="${i}" style="left:${leftPct}%;width:${widthPct}%;">${escapeHtml(c.chord)}</div>`;
+    }).join('');
+  }
+
   let idx = -1;
   for(let i = 0; i < timeline.length; i++){
     if(timeline[i].t <= curTime) idx = i; else break;
   }
-  if(idx === -1){ bar.style.display = 'none'; return; }
-  const current = timeline[idx];
-  const upcoming = timeline.slice(idx + 1, idx + 4);
-  bar.innerHTML = `
-    <span class="chord-current">${escapeHtml(current.chord)}</span>
-    <div class="chord-next-list">${upcoming.map(u => `<span class="chord-next">${escapeHtml(u.chord)}</span>`).join('')}</div>`;
-  bar.style.display = 'flex';
+  if(idx === -1){ bar.style.display = 'none'; nextBar.style.top = '0'; return; }
+
+  track.querySelectorAll('.chord-segment').forEach(el => {
+    el.classList.toggle('current', parseInt(el.dataset.idx, 10) === idx);
+  });
+  bar.style.display = 'block';
+  // Nudge the "up next" banner down while chords are showing, so the two never overlap on the rare
+  // occasion a song has chords AND is in its last 15 seconds at the same time.
+  nextBar.style.top = '52px';
 }
 setInterval(renderChordBar, 500);
 
@@ -907,9 +927,22 @@ function renderRoomQR(){
     const screen2Url = new URL('screen2.html', window.location.href);
     screen2Url.searchParams.set('room', myRoomId);
     if(state.pinEnabled && state.pin) screen2Url.searchParams.set('pin', state.pin);
+    document.getElementById('screen2-room-code-text').textContent = myRoomId.replace('srikaraoke-', '').toUpperCase();
     document.getElementById('screen2-room-url-text').textContent = screen2Url.toString();
-    document.getElementById('qrcode-screen2').innerHTML = '';
-    new QRCode(document.getElementById('qrcode-screen2'), {
+    const pinRow = document.getElementById('screen2-pin-display-row');
+    if(state.pinEnabled && state.pin){
+      pinRow.style.display = 'flex';
+      document.getElementById('screen2-pin-value').textContent = state.pin;
+    } else {
+      pinRow.style.display = 'none';
+    }
+    // Rebuild the QR container fresh each time (rather than reusing the same node) so there's no
+    // chance of a stale canvas/table left behind by the QR library from a previous render.
+    const qrHost = document.getElementById('qrcode-screen2');
+    qrHost.innerHTML = '';
+    const qrInner = document.createElement('div');
+    qrHost.appendChild(qrInner);
+    new QRCode(qrInner, {
       text: screen2Url.toString(), width: 180, height: 180, colorDark: '#1B1533', colorLight: '#ffffff'
     });
   }
@@ -980,6 +1013,8 @@ function initPeer(){
             conn.send({ type: 'JOIN_OK', role });
             updateConnStatus();
             sendState(conn);
+            conn.send({ type: 'LOCAL_LIBRARY', localLibrary: state.localLibrary });
+            conn.send({ type: 'CHORDS_LIBRARY', chords: state.chords });
           } else {
             conn.send({ type: 'JOIN_REJECTED' });
             setTimeout(() => { try{ conn.close(); }catch(e){} }, 300);
@@ -1533,6 +1568,9 @@ document.getElementById('btn-chords').onclick = openChordsModal;
 document.querySelectorAll('.mode-tab').forEach(tab => {
   tab.onclick = () => setChordMode(tab.dataset.mode);
 });
+function broadcastChords(){
+  connections.forEach(c => { if(c.open) c.send({ type: 'CHORDS_LIBRARY', chords: state.chords }); });
+}
 document.getElementById('btn-chords-save').onclick = () => {
   if(!chordTargetKey) return;
   const mode = document.querySelector('.mode-tab.active').dataset.mode;
@@ -1553,6 +1591,7 @@ document.getElementById('btn-chords-save').onclick = () => {
   saveChordsStorage();
   renderChordLibrary();
   loadChordFormForTarget();
+  broadcastChords();
   showToast('บันทึกคอร์ดแล้ว');
 };
 document.getElementById('btn-chords-delete').onclick = () => {
@@ -1561,6 +1600,7 @@ document.getElementById('btn-chords-delete').onclick = () => {
   saveChordsStorage();
   renderChordLibrary();
   loadChordFormForTarget();
+  broadcastChords();
   showToast('ลบคอร์ดเพลงนี้แล้ว');
 };
 document.getElementById('btn-popular').onclick = fetchPopularSongs;
@@ -1609,7 +1649,6 @@ document.getElementById('btn-screen2-toggle').onclick = () => {
   const btn = document.getElementById('btn-screen2-toggle');
   btn.textContent = state.screen2Enabled ? 'เปิด' : 'ปิด';
   btn.classList.toggle('accent', state.screen2Enabled);
-  document.getElementById('btn-screen2-qr').style.display = state.screen2Enabled ? 'flex' : 'none';
   document.getElementById('audio-output-row').style.display = state.screen2Enabled ? 'flex' : 'none';
   if(!state.screen2Enabled && state.audioOutput === 'screen2'){
     // Screen 2 just got turned off — bring audio back to the main screen automatically.
@@ -1618,7 +1657,12 @@ document.getElementById('btn-screen2-toggle').onclick = () => {
     document.getElementById('btn-audio-output-toggle').textContent = 'จอหลัก';
     applyAudioOutput();
   }
-  if(state.screen2Enabled && myRoomId) renderRoomQR();
+  if(state.screen2Enabled && myRoomId){
+    // Show the QR immediately — no extra button/click needed to see it.
+    renderRoomQR();
+    closeModal('settings-modal');
+    openModal('qr-screen2-modal');
+  }
 };
 document.getElementById('btn-audio-output-toggle').onclick = () => {
   state.audioOutput = state.audioOutput === 'screen1' ? 'screen2' : 'screen1';
@@ -1634,11 +1678,6 @@ document.getElementById('local-folder-input').addEventListener('change', (e) => 
 document.getElementById('btn-clear-local-folder').onclick = () => {
   clearLocalFolder();
   document.getElementById('local-folder-input').value = '';
-};
-document.getElementById('btn-screen2-qr').onclick = () => {
-  closeModal('settings-modal');
-  if(myRoomId) renderRoomQR();
-  openModal('qr-screen2-modal');
 };
 document.getElementById('btn-toggle-queue').onclick = () => {
   const main = document.getElementById('main-content');
@@ -1702,8 +1741,7 @@ document.getElementById('btn-fullscreen').onclick = () => {
   document.addEventListener(evt, updateFullscreenBtn);
 });
 
-document.getElementById('btn-logout').onclick = () => {
-  if(!confirm('ต้องการออกจากระบบใช่หรือไม่? การเล่นเพลงและการเชื่อมต่อกับรีโมท/จอที่ 2 ทั้งหมดจะหยุดลง')) return;
+function performLogout(){
   try{ if(peer) peer.destroy(); }catch(e){}
   try{ stopPlayer(); }catch(e){}
   try{ window.close(); }catch(e){}
@@ -1714,6 +1752,12 @@ document.getElementById('btn-logout').onclick = () => {
         <p style="color:var(--text-dim);max-width:360px;">กรุณาปิดแท็บ/หน้าต่างนี้ด้วยตนเอง</p>
       </div>`;
   }, 250);
+}
+document.getElementById('btn-logout').onclick = () => openModal('logout-confirm-modal');
+document.getElementById('btn-logout-cancel').onclick = () => closeModal('logout-confirm-modal');
+document.getElementById('btn-logout-confirm').onclick = () => {
+  closeModal('logout-confirm-modal');
+  performLogout();
 };
 
 /* ---------------- Tap-to-toggle header (like a video player's auto-hide controls) ---------------- */
@@ -1802,7 +1846,6 @@ if(state.fairQueueMode){
 if(state.screen2Enabled){
   document.getElementById('btn-screen2-toggle').textContent = 'เปิด';
   document.getElementById('btn-screen2-toggle').classList.add('accent');
-  document.getElementById('btn-screen2-qr').style.display = 'flex';
   document.getElementById('audio-output-row').style.display = 'flex';
   document.getElementById('btn-audio-output-toggle').textContent = state.audioOutput === 'screen2' ? 'จอที่ 2' : 'จอหลัก';
 }
