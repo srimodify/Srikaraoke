@@ -177,11 +177,13 @@ main.queue-hidden #player-section{flex:1 1 100%;}
 }
 #player{
   width:100%;height:100%;
+  position:relative;z-index:0;
 }
 #idle-screen{
   position:absolute;inset:0;
   display:flex;align-items:center;justify-content:center;
   overflow:hidden;
+  z-index:1;
   background:radial-gradient(circle at 50% 40%, #241C42 0%, #0F0C1E 70%);
 }
 .idle-content{
@@ -439,27 +441,26 @@ body.power-saving #next-up-bar{ animation: none !important; opacity:1 !important
   position:absolute;top:0;left:0;right:0;
   height:52px;
   overflow:hidden;
-  background:rgba(27,21,51,.35);
+  background:transparent;
   pointer-events:none;
-  z-index:2;
+  z-index:3;
 }
 .chord-track{position:relative;width:100%;height:100%;}
 .chord-segment{
   position:absolute;top:0;height:100%;
   display:flex;align-items:center;justify-content:center;
   font-family:'Kanit',sans-serif;font-weight:600;font-size:14px;
-  color:rgba(255,255,255,.55);
-  border-right:1px solid rgba(255,255,255,.12);
-  transition:color .25s, background-color .25s, font-size .25s;
+  color:rgba(255,255,255,.6);
+  text-shadow:-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 2px 6px rgba(0,0,0,.8);
+  transition:color .25s, font-size .25s, text-shadow .25s;
   white-space:nowrap;overflow:hidden;
   box-sizing:border-box;
 }
 .chord-segment.current{
-  color:#fff;
+  color:var(--gold);
   font-weight:700;
-  font-size:20px;
-  background:rgba(255,200,87,.3);
-  text-shadow:0 2px 8px rgba(0,0,0,.7);
+  font-size:22px;
+  text-shadow:-1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000, 0 0 12px rgba(255,200,87,.9);
 }
 
 #next-up-bar{
@@ -470,6 +471,7 @@ body.power-saving #next-up-bar{ animation: none !important; opacity:1 !important
   align-items:center;
   gap:10px;
   pointer-events:none;
+  z-index:3;
   animation:next-up-pulse 1.1s ease-in-out infinite;
 }
 @keyframes next-up-pulse{
@@ -489,6 +491,7 @@ body.power-saving #next-up-bar{ animation: none !important; opacity:1 !important
   overflow:hidden;
   background:transparent;
   pointer-events:none;
+  z-index:3;
 }
 .np-marquee-track{
   position:relative;
@@ -1062,7 +1065,7 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
     <section id="player-section">
       <div id="player-wrap">
         <div id="player"></div>
-        <video id="local-player" playsinline style="display:none;width:100%;height:100%;object-fit:contain;background:#000;"></video>
+        <video id="local-player" playsinline style="display:none;position:relative;z-index:0;width:100%;height:100%;object-fit:contain;background:#000;"></video>
         <div id="idle-screen">
           <div class="spotlights">
             <div class="spotlight spotlight-1"></div>

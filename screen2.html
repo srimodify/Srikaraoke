@@ -80,13 +80,14 @@ input,button{font-family:inherit;}
   overflow:hidden;
 }
 #d-player-wrap{position:absolute;inset:0;}
-#d-player{width:100%;height:100%;}
+#d-player{width:100%;height:100%;position:relative;z-index:0;}
 
 #d-idle{
   position:absolute;inset:0;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:18px;
   overflow:hidden;
+  z-index:1;
   background:radial-gradient(circle at 50% 40%, #241C42 0%, #0F0C1E 70%);
 }
 #d-idle img{width:110px;height:110px;border-radius:50%;object-fit:cover;filter:drop-shadow(0 0 30px rgba(255,200,87,.5));position:relative;z-index:3;}
@@ -151,6 +152,7 @@ input,button{font-family:inherit;}
   background:transparent;
   pointer-events:none;
   display:none;
+  z-index:3;
 }
 .np-marquee-track{position:relative;width:100%;height:100%;}
 .np-marquee-text{
@@ -177,26 +179,26 @@ input,button{font-family:inherit;}
   position:absolute;top:0;left:0;right:0;
   height:52px;
   overflow:hidden;
-  background:rgba(27,21,51,.35);
+  background:transparent;
   pointer-events:none;
+  z-index:3;
 }
 .chord-track{position:relative;width:100%;height:100%;}
 .chord-segment{
   position:absolute;top:0;height:100%;
   display:flex;align-items:center;justify-content:center;
   font-family:'Kanit',sans-serif;font-weight:600;font-size:14px;
-  color:rgba(255,255,255,.55);
-  border-right:1px solid rgba(255,255,255,.12);
-  transition:color .25s, background-color .25s, font-size .25s;
+  color:rgba(255,255,255,.6);
+  text-shadow:-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 2px 6px rgba(0,0,0,.8);
+  transition:color .25s, font-size .25s, text-shadow .25s;
   white-space:nowrap;overflow:hidden;
   box-sizing:border-box;
 }
 .chord-segment.current{
-  color:#fff;
+  color:var(--gold);
   font-weight:700;
-  font-size:20px;
-  background:rgba(255,200,87,.3);
-  text-shadow:0 2px 8px rgba(0,0,0,.7);
+  font-size:22px;
+  text-shadow:-1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000, 0 0 12px rgba(255,200,87,.9);
 }
 #d-next-up{
   position:absolute;top:0;left:0;right:0;
@@ -204,6 +206,7 @@ input,button{font-family:inherit;}
   background:linear-gradient(to bottom, rgba(0,0,0,.75), transparent);
   pointer-events:none;
   display:none;
+  z-index:3;
   animation:d-pulse 1.1s ease-in-out infinite;
 }
 @keyframes d-pulse{ 0%,100%{opacity:1;} 50%{opacity:.4;} }
