@@ -16,6 +16,11 @@ const STORAGE_HISTORY = 'sriKaraoke_history';
 const STORAGE_SCORES = 'sriKaraoke_scores';
 const STORAGE_CHORDS = 'sriKaraoke_chords';
 const TEMPO_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+// A simple original placeholder icon (a music note on a solid circle) for songs added from the
+// device's own files, which have no real thumbnail like YouTube search results do.
+const LOCAL_FILE_THUMB = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="%23241C42"/><path d="M26 42a6 6 0 1 1-2-4.5V16l18-4v20.5a6 6 0 1 1-4-5.6V16.8l-10 2.2V42a6 6 0 0 1-2 0z" fill="%23FFC857"/></svg>'
+);
 
 const state = {
   queue: [],          // [{id, videoId, title, thumbnail, by}]
@@ -27,14 +32,19 @@ const state = {
   playlists: loadPlaylists(),
   history: loadHistory(),
   scores: loadScores(),
-  chords: loadChords(),
   pinEnabled: false,
   pin: '',
-  fairQueueMode: sessionStorage.getItem('sriKaraoke_fairMode') === '1'
+  fairQueueMode: sessionStorage.getItem('sriKaraoke_fairMode') === '1',
+  screen2Enabled: sessionStorage.getItem('sriKaraoke_screen2Enabled') === '1',
+  audioOutput: sessionStorage.getItem('sriKaraoke_audioOutput') || 'screen1',
+  localLibrary: [],
+  chords: loadChords()
 };
 
 let ytPlayer = null;
 let ytReady = false;
+let localPlayer = null; // <video> element used for songs from the device's own file system
+const localFiles = new Map(); // localFileId -> File object (kept in memory only, this device/session only)
 let peer = null;
 const connections = []; // connected remote controllers
 let dragSrcId = null;
@@ -74,10 +84,17 @@ function loadChords(){
   }catch(e){ return {}; }
 }
 function saveChordsStorage(){ localStorage.setItem(STORAGE_CHORDS, JSON.stringify(state.chords)); }
+// Chords are keyed per-song using whichever identifier that song actually has, so YouTube songs and
+// local-file songs never collide with each other in the same chord library.
+function songChordKey(song){
+  if(!song) return null;
+  return song.source === 'local' ? 'local:' + song.localFileId : 'yt:' + song.videoId;
+}
 
 function addToHistory(song, reason){
   state.history.unshift({
-    id: uid(), videoId: song.videoId, title: song.title, thumbnail: song.thumbnail,
+    id: uid(), source: song.source || 'youtube', videoId: song.videoId, localFileId: song.localFileId,
+    title: song.title, thumbnail: song.thumbnail,
     by: song.by || '', reason: reason || '', playedAt: Date.now()
   });
   if(state.history.length > 200) state.history.length = 200;
@@ -166,15 +183,44 @@ function recordAndSetCurrent(prevSongObj, newId, reason){
   state.currentId = newId;
   if(newId){
     const song = state.queue.find(s => s.id === newId);
-    if(song && ytReady && ytPlayer){
-      ytPlayer.loadVideoById(song.videoId);
-      ytPlayer.setPlaybackRate(state.tempo);
-      state.isPlaying = true;
-    }
+    if(song) loadSongIntoPlayer(song);
   } else {
     stopPlayer();
   }
   renderQueue();
+}
+
+// Switches between the YouTube iframe and the local <video> element depending on the song's
+// source, and loads/plays the song on whichever one applies.
+function loadSongIntoPlayer(song){
+  const ytWrap = document.getElementById('player');
+  if(song.source === 'local'){
+    const file = localFiles.get(song.localFileId);
+    if(!file){
+      showToast(`ไม่พบไฟล์ "${song.title}" ในเครื่อง (อาจยังไม่ได้เลือกโฟลเดอร์ในเซสชันนี้) — ข้ามไปเพลงถัดไป`, true);
+      skip('ไฟล์หายไป');
+      return;
+    }
+    if(ytWrap) ytWrap.style.display = 'none';
+    if(localPlayer){
+      localPlayer.style.display = 'block';
+      const url = URL.createObjectURL(file);
+      localPlayer.src = url;
+      localPlayer.playbackRate = state.tempo;
+      localPlayer.volume = state.audioOutput === 'screen2' ? 0 : state.volume / 100;
+      localPlayer.muted = state.audioOutput === 'screen2' ? true : state.muted;
+      localPlayer.play().catch(() => {});
+    }
+    state.isPlaying = true;
+  } else {
+    if(localPlayer){ localPlayer.pause(); localPlayer.removeAttribute('src'); localPlayer.load(); localPlayer.style.display = 'none'; }
+    if(ytWrap) ytWrap.style.display = '';
+    if(ytReady && ytPlayer){
+      ytPlayer.loadVideoById(song.videoId);
+      ytPlayer.setPlaybackRate(state.tempo);
+      state.isPlaying = true;
+    }
+  }
 }
 
 function closeModal(id){ document.getElementById(id).classList.add('hidden'); }
@@ -227,9 +273,7 @@ if(location.protocol !== 'https:' && location.hostname !== 'localhost' && locati
 }
 
 function escapeHtml(s){
-  const d = document.createElement('div');
-  d.textContent = s || '';
-  return d.innerHTML;
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function currentIndex(){ return state.queue.findIndex(s => s.id === state.currentId); }
@@ -290,9 +334,9 @@ function renderQueue(){
     li.innerHTML = `
       <div class="drag-handle" title="ลากเพื่อจัดเรียง">⋮⋮</div>
       <div class="idx">${isCurrent ? '▶' : i + 1}</div>
-      <img src="${song.thumbnail}" alt="">
+      <img src="${escapeHtml(song.thumbnail)}" alt="">
       <div class="meta">
-        <div class="title">${escapeHtml(song.title)}</div>
+        <div class="title">${song.source === 'local' ? '<span class="source-badge local">💻</span>' : ''}${escapeHtml(song.title)}</div>
         <div class="by">${song.by ? 'เพิ่มโดย ' + escapeHtml(song.by) : ''}</div>
       </div>
       <div class="actions">
@@ -326,35 +370,225 @@ function renderQueue(){
 }
 
 function renderNowPlaying(){
-  const bar = document.getElementById('now-playing-bar');
   const idle = document.getElementById('idle-screen');
   const song = currentSong();
-  const nextBar = document.getElementById('next-up-bar');
   if(song){
-    bar.style.display = 'flex';
     idle.style.display = 'none';
-    document.getElementById('np-thumb').src = song.thumbnail;
-    document.getElementById('np-title').textContent = song.title;
-    document.getElementById('np-by').textContent = song.by ? 'เพิ่มโดย ' + song.by : '';
-
-    const idx = currentIndex();
-    const upcoming = idx > -1 ? state.queue[idx + 1] : null;
-    if(upcoming){
-      nextBar.classList.remove('warn');
-      nextBar.innerHTML = `<span class="next-up-label">▶ ถัดไป</span><span class="next-up-title">${escapeHtml(upcoming.title)}</span>`;
-    } else {
-      nextBar.classList.add('warn');
-      nextBar.innerHTML = `<span class="next-up-warn">⚠️ ไม่มีเพลงในคิว...กรุณาเลือกเพลง</span>`;
-    }
-    nextBar.style.display = 'flex';
+    document.title = '🎤 ' + song.title + ' — Sri Karaoke';
   } else {
-    bar.style.display = 'none';
     idle.style.display = 'flex';
-    nextBar.style.display = 'none';
+    document.getElementById('next-up-bar').style.display = 'none';
+    document.title = 'Sri Karaoke';
+    // Welcome message only ever shows before "เริ่มระบบ" is clicked (i.e. the very first time the
+    // system is opened). After that, an empty queue shows a blinking prompt instead.
+    const title = document.getElementById('idle-title');
+    const desc = document.getElementById('idle-desc');
+    const emptyMsg = document.getElementById('idle-empty-queue-msg');
+    const idleContent = document.querySelector('#idle-screen .idle-content');
+    if(audioUnlocked){
+      title.style.display = 'none';
+      desc.style.display = 'none';
+      emptyMsg.style.display = 'block';
+      idleContent.classList.add('no-box'); // just the blinking text over the disco lights, no card behind it
+    } else {
+      title.style.display = '';
+      emptyMsg.style.display = 'none';
+      idleContent.classList.remove('no-box');
+    }
   }
+  updateNowPlayingBar(song);
   document.getElementById('btn-playpause').textContent = state.isPlaying ? '⏸ หยุด' : '▶ เล่น';
+  renderNextUpBar();
   renderChordBar();
 }
+
+// "Now playing" is shown as a continuously scrolling ticker (right-to-left) across the bottom of the
+// video, on a transparent background so the video itself is never blocked. Speed scales with the
+// text length so longer titles don't feel rushed. Restarts cleanly on every song change.
+function updateNowPlayingBar(song){
+  const bar = document.getElementById('now-playing-bar');
+  const textEl = document.getElementById('np-marquee-text');
+  if(!song){
+    bar.style.display = 'none';
+    textEl.style.animation = 'none';
+    return;
+  }
+  textEl.textContent = '🎤 กำลังเล่นเพลงนี้: ' + song.title + (song.by ? ' • เพิ่มโดย ' + song.by : '');
+  bar.style.display = 'block';
+  // Reset then re-apply the animation so it restarts from the right edge every time, and so the
+  // duration can be recalculated for the new text's length.
+  textEl.style.animation = 'none';
+  void textEl.offsetWidth; // force reflow so the browser "forgets" the previous animation state
+  const duration = Math.max(10, textEl.textContent.length * 0.35);
+  textEl.style.animation = `np-marquee-rtl ${duration}s linear infinite`;
+}
+
+// Shows what's coming up next only in the last ~15 seconds of the current song (not the whole time),
+// so it doesn't distract earlier on. Driven by a timer since it depends on live playback position.
+const NEXT_UP_WINDOW_SECONDS = 15;
+// Abstracts "how far into the current song are we" across the two possible players (YouTube iframe
+// or the local <video> element), so timing-dependent features don't need to know which one is active.
+function getPlaybackTimes(){
+  const song = currentSong();
+  if(song && song.source === 'local' && localPlayer && localPlayer.src){
+    return { duration: localPlayer.duration || 0, currentTime: localPlayer.currentTime || 0 };
+  }
+  if(ytReady && ytPlayer){
+    try{ return { duration: ytPlayer.getDuration() || 0, currentTime: ytPlayer.getCurrentTime() || 0 }; }
+    catch(e){ return { duration: 0, currentTime: 0 }; }
+  }
+  return { duration: 0, currentTime: 0 };
+}
+function renderNextUpBar(){
+  const nextBar = document.getElementById('next-up-bar');
+  const song = currentSong();
+  if(!song){
+    nextBar.style.display = 'none';
+    return;
+  }
+  const { duration, currentTime: curTime } = getPlaybackTimes();
+  const remaining = duration - curTime;
+  if(!duration || remaining > NEXT_UP_WINDOW_SECONDS || remaining < 0){
+    nextBar.style.display = 'none';
+    return;
+  }
+  const idx = currentIndex();
+  const upcoming = idx > -1 ? state.queue[idx + 1] : null;
+  if(upcoming){
+    nextBar.classList.remove('warn');
+    nextBar.innerHTML = `<span class="next-up-label">▶ ถัดไป</span><span class="next-up-title">${escapeHtml(upcoming.title)}</span>`;
+  } else {
+    nextBar.classList.add('warn');
+    nextBar.innerHTML = `<span class="next-up-warn">⚠️ ไม่มีเพลงในคิว...กรุณาเลือกเพลง</span>`;
+  }
+  nextBar.style.display = 'flex';
+}
+setInterval(renderNextUpBar, 1000);
+
+/* ---------------- Chords (saved per song — works for both YouTube and local-file songs) ---------------- */
+let chordTargetKey = null;
+let chordTargetTitle = '';
+
+function parseSimpleChords(text, secondsPerChord){
+  const chords = text.trim().split(/\s+/).filter(Boolean);
+  return chords.map((chord, i) => ({ t: i * secondsPerChord, chord }));
+}
+function parseTimedChords(text){
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const timeline = [];
+  lines.forEach(line => {
+    let m = line.match(/^(\d+):(\d{1,2})\s+(.+)$/);
+    if(m){
+      timeline.push({ t: parseInt(m[1], 10) * 60 + parseInt(m[2], 10), chord: m[3].trim() });
+      return;
+    }
+    m = line.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
+    if(m) timeline.push({ t: parseFloat(m[1]), chord: m[2].trim() });
+  });
+  timeline.sort((a, b) => a.t - b.t);
+  return timeline;
+}
+
+function renderChordBar(){
+  const bar = document.getElementById('chord-bar');
+  const song = currentSong();
+  const key = songChordKey(song);
+  const entry = key ? state.chords[key] : null;
+  if(!song || !entry || !entry.timeline || entry.timeline.length === 0){
+    bar.style.display = 'none';
+    return;
+  }
+  const { currentTime: curTime } = getPlaybackTimes();
+  const timeline = entry.timeline;
+  let idx = -1;
+  for(let i = 0; i < timeline.length; i++){
+    if(timeline[i].t <= curTime) idx = i; else break;
+  }
+  if(idx === -1){ bar.style.display = 'none'; return; }
+  const current = timeline[idx];
+  const upcoming = timeline.slice(idx + 1, idx + 4);
+  bar.innerHTML = `
+    <span class="chord-current">${escapeHtml(current.chord)}</span>
+    <div class="chord-next-list">${upcoming.map(u => `<span class="chord-next">${escapeHtml(u.chord)}</span>`).join('')}</div>`;
+  bar.style.display = 'flex';
+}
+setInterval(renderChordBar, 500);
+
+function setChordMode(mode){
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+  document.getElementById('chord-hint-simple').style.display = mode === 'simple' ? 'block' : 'none';
+  document.getElementById('chord-hint-timed').style.display = mode === 'timed' ? 'block' : 'none';
+  document.getElementById('chord-input-simple').style.display = mode === 'simple' ? 'block' : 'none';
+  document.getElementById('chord-input-timed').style.display = mode === 'timed' ? 'block' : 'none';
+}
+
+function loadChordFormForTarget(){
+  const titleEl = document.getElementById('chords-song-title');
+  const saveBtn = document.getElementById('btn-chords-save');
+  const delBtn = document.getElementById('btn-chords-delete');
+  if(!chordTargetKey){
+    titleEl.textContent = 'เล่นเพลง หรือเลือก "แก้ไข" จากคลังคอร์ดด้านล่างเพื่อเริ่มเพิ่มคอร์ด';
+    document.getElementById('chord-input-simple-text').value = '';
+    document.getElementById('chord-input-timed-text').value = '';
+    saveBtn.disabled = true;
+    delBtn.disabled = true;
+    return;
+  }
+  titleEl.textContent = '🎵 ' + chordTargetTitle;
+  saveBtn.disabled = false;
+  const existing = state.chords[chordTargetKey];
+  delBtn.disabled = !existing;
+  if(existing){
+    setChordMode(existing.mode);
+    if(existing.mode === 'simple'){
+      document.getElementById('chord-input-simple-text').value = existing.raw || '';
+      document.getElementById('chord-seconds-per').value = existing.secondsPerChord || 4;
+    } else {
+      document.getElementById('chord-input-timed-text').value = existing.raw || '';
+    }
+  } else {
+    document.getElementById('chord-input-simple-text').value = '';
+    document.getElementById('chord-input-timed-text').value = '';
+    document.getElementById('chord-seconds-per').value = 4;
+    setChordMode('simple');
+  }
+}
+
+function renderChordLibrary(){
+  const wrap = document.getElementById('chord-library-list');
+  const keys = Object.keys(state.chords);
+  document.getElementById('chord-count').textContent = keys.length;
+  if(keys.length === 0){
+    wrap.innerHTML = '<div class="empty-note">ยังไม่มีคอร์ดที่บันทึกไว้</div>';
+    return;
+  }
+  wrap.innerHTML = '';
+  keys.forEach(key => {
+    const entry = state.chords[key];
+    const row = document.createElement('div');
+    row.className = 'pl-row';
+    row.innerHTML = `
+      <div class="name">${escapeHtml(entry.title || key)}</div>
+      <div class="count">${entry.mode === 'timed' ? 'โหมดละเอียด' : 'โหมดง่าย'} · ${entry.timeline.length} คอร์ด</div>
+      <button data-act="edit">แก้ไข</button>`;
+    row.querySelector('[data-act="edit"]').onclick = () => {
+      chordTargetKey = key;
+      chordTargetTitle = entry.title || key;
+      loadChordFormForTarget();
+    };
+    wrap.appendChild(row);
+  });
+}
+
+function openChordsModal(){
+  const song = currentSong();
+  const key = songChordKey(song);
+  if(key){ chordTargetKey = key; chordTargetTitle = song.title; }
+  renderChordLibrary();
+  loadChordFormForTarget();
+  openModal('chords-modal');
+}
+
 
 function renderTempo(){
   document.getElementById('tempo-value').textContent = state.tempo.toFixed(2) + 'x';
@@ -368,11 +602,14 @@ function renderVolume(){
 
 /* ---------------- Queue operations (playback order = host only) ---------------- */
 function addSong(song, from, playNow){
-  const newSong = { id: uid(), videoId: song.videoId, title: song.title, thumbnail: song.thumbnail, by: from || '' };
+  const newSong = song.source === 'local'
+    ? { id: uid(), source: 'local', localFileId: song.localFileId, title: song.title, thumbnail: LOCAL_FILE_THUMB, by: from || '' }
+    : { id: uid(), source: 'youtube', videoId: song.videoId, title: song.title, thumbnail: song.thumbnail, by: from || '' };
 
   // Friendly heads-up if this song was already played recently or is already queued — still adds it either way.
-  const recentlyPlayed = state.history.slice(0, 15).some(h => h.videoId === newSong.videoId);
-  const alreadyQueued = state.queue.some(s => s.videoId === newSong.videoId);
+  const matchKey = s => s.source === 'local' ? s.localFileId : s.videoId;
+  const recentlyPlayed = state.history.slice(0, 15).some(h => (h.source || 'youtube') === newSong.source && matchKey(h) === matchKey(newSong));
+  const alreadyQueued = state.queue.some(s => s.source === newSong.source && matchKey(s) === matchKey(newSong));
   if(recentlyPlayed) showToast(`⚠️ "${newSong.title}" เพิ่งเล่นไปแล้วก่อนหน้านี้`, true);
   else if(alreadyQueued) showToast(`⚠️ "${newSong.title}" มีอยู่ในคิวแล้ว`, true);
 
@@ -434,6 +671,7 @@ function moveDown(id){
 // "คิวคนร้อง" fairness: re-sorts the not-yet-played tail of the queue into round-robin
 // order by singer, so one person adding many songs doesn't monopolize consecutive turns.
 // Never touches the currently playing song or anything before it.
+const FAIR_QUEUE_SONGS_PER_TURN = 2; // how many songs each singer gets before rotating to the next
 function fairReorderQueue(){
   const idx = currentIndex();
   const headPortion = idx > -1 ? state.queue.slice(0, idx + 1) : [];
@@ -452,7 +690,10 @@ function fairReorderQueue(){
   while(result.length < tailPortion.length){
     for(const key of order){
       const list = groups.get(key);
-      if(list[round]) result.push(list[round]);
+      for(let i = 0; i < FAIR_QUEUE_SONGS_PER_TURN; i++){
+        const pos = round * FAIR_QUEUE_SONGS_PER_TURN + i;
+        if(list[pos]) result.push(list[pos]);
+      }
     }
     round++;
   }
@@ -464,6 +705,7 @@ function reorderBefore(draggedId, targetId){
   if(from === -1) return;
   const [song] = state.queue.splice(from, 1);
   const to = state.queue.findIndex(s => s.id === targetId);
+  if(to === -1){ state.queue.splice(from, 0, song); return; } // target vanished mid-drag — put it back, don't misplace it
   state.queue.splice(to, 0, song);
   renderQueue();
 }
@@ -489,14 +731,23 @@ function prevSong(){
 }
 
 function togglePlayPause(){
-  if(!ytPlayer || !state.currentId) return;
-  if(state.isPlaying){ ytPlayer.pauseVideo(); state.isPlaying = false; }
-  else { ytPlayer.playVideo(); state.isPlaying = true; }
+  const song = currentSong();
+  if(!song || !state.currentId) return;
+  if(song.source === 'local' && localPlayer){
+    if(state.isPlaying){ localPlayer.pause(); state.isPlaying = false; }
+    else { localPlayer.play().catch(() => {}); state.isPlaying = true; }
+  } else if(ytPlayer){
+    if(state.isPlaying){ ytPlayer.pauseVideo(); state.isPlaying = false; }
+    else { ytPlayer.playVideo(); state.isPlaying = true; }
+  }
   renderQueue();
 }
 
 function stopPlayer(){
   if(ytPlayer){ try{ ytPlayer.stopVideo(); }catch(e){} }
+  if(localPlayer){ try{ localPlayer.pause(); localPlayer.removeAttribute('src'); localPlayer.load(); localPlayer.style.display = 'none'; }catch(e){} }
+  const ytWrap = document.getElementById('player');
+  if(ytWrap) ytWrap.style.display = '';
   state.isPlaying = false;
 }
 
@@ -505,147 +756,43 @@ function tempoStep(dir){
   const idx = TEMPO_RATES.indexOf(state.tempo);
   const nextIdx = Math.min(TEMPO_RATES.length - 1, Math.max(0, (idx === -1 ? 2 : idx) + dir));
   state.tempo = TEMPO_RATES[nextIdx];
-  if(ytReady && ytPlayer) ytPlayer.setPlaybackRate(state.tempo);
+  if(ytReady && ytPlayer){ try{ ytPlayer.setPlaybackRate(state.tempo); }catch(e){} }
+  if(localPlayer) localPlayer.playbackRate = state.tempo;
   renderTempo();
   broadcastState();
 }
 
 /* ---------------- Volume — allowed from host AND remote ---------------- */
 function volumeStep(dir){
-  if(state.muted){ state.muted = false; if(ytReady && ytPlayer) ytPlayer.unMute(); }
+  state.muted = false;
   state.volume = Math.min(100, Math.max(0, state.volume + dir * 10));
-  if(ytReady && ytPlayer) ytPlayer.setVolume(state.volume);
+  applyAudioOutput();
   renderVolume();
   broadcastState();
 }
 function toggleMute(){
   state.muted = !state.muted;
-  if(ytReady && ytPlayer){ state.muted ? ytPlayer.mute() : ytPlayer.unMute(); }
+  applyAudioOutput();
   renderVolume();
   broadcastState();
 }
 
-/* ---------------- Chords (host only, saved per YouTube video) ---------------- */
-let chordTargetVideoId = null;
-let chordTargetTitle = '';
-
-function parseSimpleChords(text, secondsPerChord){
-  const chords = text.trim().split(/\s+/).filter(Boolean);
-  return chords.map((chord, i) => ({ t: i * secondsPerChord, chord }));
-}
-function parseTimedChords(text){
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const timeline = [];
-  lines.forEach(line => {
-    let m = line.match(/^(\d+):(\d{1,2})\s+(.+)$/);
-    if(m){
-      timeline.push({ t: parseInt(m[1], 10) * 60 + parseInt(m[2], 10), chord: m[3].trim() });
-      return;
-    }
-    m = line.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
-    if(m) timeline.push({ t: parseFloat(m[1]), chord: m[2].trim() });
-  });
-  timeline.sort((a, b) => a.t - b.t);
-  return timeline;
-}
-
-function renderChordBar(){
-  const bar = document.getElementById('chord-bar');
-  const song = currentSong();
-  const entry = song ? state.chords[song.videoId] : null;
-  if(!song || !entry || !entry.timeline || entry.timeline.length === 0 || !ytPlayer || !ytReady){
-    bar.style.display = 'none';
-    return;
-  }
-  let curTime = 0;
-  try{ curTime = ytPlayer.getCurrentTime() || 0; }catch(e){}
-  const timeline = entry.timeline;
-  let idx = -1;
-  for(let i = 0; i < timeline.length; i++){
-    if(timeline[i].t <= curTime) idx = i; else break;
-  }
-  if(idx === -1){ bar.style.display = 'none'; return; }
-  const current = timeline[idx];
-  const upcoming = timeline.slice(idx + 1, idx + 4);
-  bar.innerHTML = `
-    <span class="chord-current">${escapeHtml(current.chord)}</span>
-    <div class="chord-next-list">${upcoming.map(u => `<span class="chord-next">${escapeHtml(u.chord)}</span>`).join('')}</div>`;
-  bar.style.display = 'flex';
-}
-setInterval(renderChordBar, 500);
-
-function setChordMode(mode){
-  document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
-  document.getElementById('chord-hint-simple').style.display = mode === 'simple' ? 'block' : 'none';
-  document.getElementById('chord-hint-timed').style.display = mode === 'timed' ? 'block' : 'none';
-  document.getElementById('chord-input-simple').style.display = mode === 'simple' ? 'block' : 'none';
-  document.getElementById('chord-input-timed').style.display = mode === 'timed' ? 'block' : 'none';
-}
-
-function loadChordFormForTarget(){
-  const titleEl = document.getElementById('chords-song-title');
-  const saveBtn = document.getElementById('btn-chords-save');
-  const delBtn = document.getElementById('btn-chords-delete');
-  if(!chordTargetVideoId){
-    titleEl.textContent = 'เล่นเพลง หรือเลือก "แก้ไข" จากคลังคอร์ดด้านล่างเพื่อเริ่มเพิ่มคอร์ด';
-    document.getElementById('chord-input-simple-text').value = '';
-    document.getElementById('chord-input-timed-text').value = '';
-    saveBtn.disabled = true;
-    delBtn.disabled = true;
-    return;
-  }
-  titleEl.textContent = '🎵 ' + chordTargetTitle;
-  saveBtn.disabled = false;
-  const existing = state.chords[chordTargetVideoId];
-  delBtn.disabled = !existing;
-  if(existing){
-    setChordMode(existing.mode);
-    if(existing.mode === 'simple'){
-      document.getElementById('chord-input-simple-text').value = existing.raw || '';
-      document.getElementById('chord-seconds-per').value = existing.secondsPerChord || 4;
-    } else {
-      document.getElementById('chord-input-timed-text').value = existing.raw || '';
-    }
+// Routes the shared volume/tempo controls to whichever screen is currently the audio source.
+// When Screen 2 is the source, the host's own player is force-muted and every connection (Screen 2,
+// phone remotes) gets an AUDIO_OUTPUT message — phone remotes have no player and simply ignore it.
+function applyAudioOutput(){
+  if(state.audioOutput === 'screen2'){
+    if(ytReady && ytPlayer){ try{ ytPlayer.mute(); ytPlayer.setVolume(0); }catch(e){} }
+    if(localPlayer){ localPlayer.muted = true; localPlayer.volume = 0; }
   } else {
-    document.getElementById('chord-input-simple-text').value = '';
-    document.getElementById('chord-input-timed-text').value = '';
-    document.getElementById('chord-seconds-per').value = 4;
-    setChordMode('simple');
+    if(ytReady && ytPlayer){
+      try{ ytPlayer.setVolume(state.volume); state.muted ? ytPlayer.mute() : ytPlayer.unMute(); }catch(e){}
+    }
+    if(localPlayer){ localPlayer.volume = state.volume / 100; localPlayer.muted = state.muted; }
   }
-}
-
-function renderChordLibrary(){
-  const wrap = document.getElementById('chord-library-list');
-  const keys = Object.keys(state.chords);
-  document.getElementById('chord-count').textContent = keys.length;
-  if(keys.length === 0){
-    wrap.innerHTML = '<div class="empty-note">ยังไม่มีคอร์ดที่บันทึกไว้</div>';
-    return;
-  }
-  wrap.innerHTML = '';
-  keys.forEach(vid => {
-    const entry = state.chords[vid];
-    const row = document.createElement('div');
-    row.className = 'pl-row';
-    row.innerHTML = `
-      <div class="name">${escapeHtml(entry.title || vid)}</div>
-      <div class="count">${entry.mode === 'timed' ? 'โหมดละเอียด' : 'โหมดง่าย'} · ${entry.timeline.length} คอร์ด</div>
-      <button data-act="edit">แก้ไข</button>`;
-    row.querySelector('[data-act="edit"]').onclick = () => {
-      chordTargetVideoId = vid;
-      chordTargetTitle = entry.title || vid;
-      loadChordFormForTarget();
-    };
-    wrap.appendChild(row);
+  connections.forEach(c => {
+    if(c.open) c.send({ type: 'AUDIO_OUTPUT', output: state.audioOutput, volume: state.volume, muted: state.muted });
   });
-}
-
-function openChordsModal(){
-  const song = currentSong();
-  if(song){ chordTargetVideoId = song.videoId; chordTargetTitle = song.title; }
-  renderChordLibrary();
-  loadChordFormForTarget();
-  openModal('chords-modal');
 }
 
 /* ---------------- YouTube ---------------- */
@@ -656,7 +803,7 @@ function onYouTubeIframeAPIReady(){
     width: '100%', height: '100%',
     playerVars: { autoplay: 0, playsinline: 1, controls: 1, rel: 0 },
     events: {
-      onReady: () => { ytReady = true; ytPlayer.setVolume(state.volume); if(state.muted) ytPlayer.mute(); },
+      onReady: () => { ytReady = true; applyAudioOutput(); },
       onStateChange: (e) => {
         if(e.data === YT.PlayerState.ENDED){
           const finishedSong = currentSong();
@@ -677,6 +824,27 @@ function onYouTubeIframeAPIReady(){
 }
 window.onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
 
+// Local <video> element — plays songs added from the device's own files. Mirrors the YouTube
+// player's ended/error/play/pause handling so the rest of the app (scoring, skip, now-playing state)
+// doesn't need to care which source is currently active.
+localPlayer = document.getElementById('local-player');
+if(localPlayer){
+  localPlayer.addEventListener('ended', () => {
+    const finishedSong = currentSong();
+    if(finishedSong) recordAndShowScore(finishedSong);
+    skip('เล่นจบ');
+  });
+  localPlayer.addEventListener('error', () => {
+    const song = currentSong();
+    if(song && song.source === 'local'){
+      showToast(`เล่นไฟล์ "${song.title}" ไม่ได้ (ไฟล์เสียหายหรือรูปแบบไม่รองรับ) — ข้ามไปเพลงถัดไป`, true);
+      skip('เล่นไม่ได้');
+    }
+  });
+  localPlayer.addEventListener('playing', () => { state.isPlaying = true; renderNowPlaying(); });
+  localPlayer.addEventListener('pause', () => { state.isPlaying = false; renderNowPlaying(); });
+}
+
 // Browsers block audio-with-sound playback that isn't triggered directly by a user click.
 // Songs added remotely (via a phone) arrive as a network message, not a click on THIS page,
 // so the very first playback needs one manual tap here to "unlock" autoplay for the rest of the session.
@@ -690,8 +858,7 @@ document.getElementById('btn-start-audio').onclick = () => {
   }
   audioUnlocked = true;
   document.getElementById('btn-start-audio').style.display = 'none';
-  document.getElementById('idle-title').textContent = 'พร้อมแล้ว!';
-  document.getElementById('idle-desc').style.display = 'block';
+  renderNowPlaying();
 };
 
 /* ---------------- PeerJS (remote sync) ---------------- */
@@ -734,6 +901,18 @@ function renderRoomQR(){
   new QRCode(document.getElementById('qrcode-admin'), {
     text: adminUrl.toString(), width: 180, height: 180, colorDark: '#1B1533', colorLight: '#ffffff'
   });
+
+  // Screen 2 link — a read-only display, so it just reuses the guest PIN gate (no special token needed).
+  if(state.screen2Enabled){
+    const screen2Url = new URL('screen2.html', window.location.href);
+    screen2Url.searchParams.set('room', myRoomId);
+    if(state.pinEnabled && state.pin) screen2Url.searchParams.set('pin', state.pin);
+    document.getElementById('screen2-room-url-text').textContent = screen2Url.toString();
+    document.getElementById('qrcode-screen2').innerHTML = '';
+    new QRCode(document.getElementById('qrcode-screen2'), {
+      text: screen2Url.toString(), width: 180, height: 180, colorDark: '#1B1533', colorLight: '#ffffff'
+    });
+  }
 }
 
 // Extra STUN servers beyond PeerJS's default, so connections have more paths to find each other
@@ -846,6 +1025,29 @@ function updateConnStatus(){
   if(guests) parts.push(`ผู้ใช้ทั่วไป ${guests}`);
   if(admins) parts.push(`แอดมิน ${admins}`);
   el.textContent = 'เชื่อมต่อแล้ว: ' + parts.join(', ');
+  renderConnectedDevices();
+}
+
+function renderConnectedDevices(){
+  const wrap = document.getElementById('connected-devices-list');
+  if(!wrap) return;
+  if(connections.length === 0){
+    wrap.innerHTML = '';
+    return;
+  }
+  wrap.innerHTML = connections.map((c, i) => `
+    <div class="device-row">
+      <span class="device-role">${c._role === 'admin' ? '👑' : '👤'}</span>
+      <span class="device-name">${escapeHtml(c._nickname || 'ไม่ระบุชื่อ')}</span>
+      <button data-idx="${i}">ตัดการเชื่อมต่อ</button>
+    </div>`).join('');
+  wrap.querySelectorAll('button[data-idx]').forEach(btn => {
+    btn.onclick = () => {
+      const c = connections[parseInt(btn.dataset.idx, 10)];
+      if(c){ try{ c.close(); }catch(e){} }
+      setTimeout(renderConnectedDevices, 200);
+    };
+  });
 }
 
 // Guests can queue/remove songs and adjust tempo. Admins get full remote control,
@@ -861,6 +1063,12 @@ function handleRemoteMessage(msg, conn){
   if(!allowed.has(msg.type)) return;
   switch(msg.type){
     case 'ADD_SONG':
+      // A local-file request only makes sense if the file is actually in this device's memory —
+      // a remote can only ever have seen the title (never the file itself), so double-check here.
+      if(msg.song && msg.song.source === 'local' && !localFiles.has(msg.song.localFileId)){
+        showToast('เพลงจากไฟล์ในเครื่องนี้ไม่พร้อมแล้ว (อาจล้างโฟลเดอร์ไปแล้ว) — ไม่ได้เพิ่มเข้าคิว', true);
+        break;
+      }
       addSong(msg.song, msg.from, false);
       showToast(`🎵 ${msg.from ? msg.from + ' ' : ''}เพิ่มเพลง "${msg.song.title}" เข้าคิว`);
       break;
@@ -885,16 +1093,30 @@ function handleRemoteMessage(msg, conn){
 function broadcastState(){
   connections.forEach(conn => { if(conn.open) sendState(conn); });
 }
+// A lighter periodic ping so long-idle screens (mainly Screen 2, which plays its own copy of the
+// video independently) stay roughly in sync without re-sending the whole queue/playlists repeatedly.
+// Only meaningful for YouTube songs — Screen 2 can't play local files, so there's nothing to sync then.
+setInterval(() => {
+  const song = currentSong();
+  if(!song || song.source === 'local' || connections.length === 0) return;
+  const { currentTime: t } = getPlaybackTimes();
+  connections.forEach(conn => {
+    if(conn.open) conn.send({ type: 'TIME_SYNC', currentId: state.currentId, currentTime: t });
+  });
+}, 4000);
 function sendState(conn){
+  const { currentTime } = getPlaybackTimes();
   conn.send({
     type: 'STATE_UPDATE',
     queue: state.queue,
     currentId: state.currentId,
+    currentTime: currentTime,
     isPlaying: state.isPlaying,
     tempo: state.tempo,
     volume: state.volume,
     muted: state.muted,
-    playlists: state.playlists
+    playlists: state.playlists,
+    localLibrary: state.localLibrary
   });
 }
 
@@ -939,13 +1161,15 @@ function loadPlaylistIntoQueue(name){
 
 function savePlaylistFromQueue(name){
   if(!name || state.queue.length === 0) return;
-  state.playlists[name] = state.queue.map(({ videoId, title, thumbnail, by }) => ({ videoId, title, thumbnail, by }));
+  state.playlists[name] = state.queue.map(({ source, videoId, localFileId, title, thumbnail, by }) => ({
+    source: source || 'youtube', videoId, localFileId, title, thumbnail, by
+  }));
   savePlaylists();
   renderPlaylists();
 }
 
 function exportBackup(){
-  const hasData = Object.keys(state.playlists).length > 0 || state.history.length > 0 || Object.keys(state.chords).length > 0;
+  const hasData = Object.keys(state.playlists).length > 0 || state.history.length > 0;
   if(!hasData){
     showToast('ยังไม่มีข้อมูลให้สำรอง', true);
     return;
@@ -955,8 +1179,7 @@ function exportBackup(){
     version: 1,
     exportedAt: Date.now(),
     playlists: state.playlists,
-    history: state.history,
-    chords: state.chords
+    history: state.history
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -976,19 +1199,23 @@ function importBackupFromFile(file){
       const data = JSON.parse(e.target.result);
       if(typeof data !== 'object' || data === null || Array.isArray(data)) throw new Error('bad format');
 
-      let plCount = 0, histCount = 0, chordCount = 0, chordSkipped = 0;
+      let plCount = 0, histCount = 0;
 
       // Playlists — also accepts an older playlists-only export file (no "type"/"playlists" wrapper).
       const plSource = (data.playlists && typeof data.playlists === 'object' && !Array.isArray(data.playlists))
         ? data.playlists
-        : (!data.type && !data.history && !data.chords ? data : null);
+        : (!data.type && !data.history ? data : null);
       if(plSource){
         Object.keys(plSource).forEach(name => {
           const songs = plSource[name];
           if(!Array.isArray(songs)) return;
           const cleaned = songs
-            .filter(s => s && s.videoId && s.title)
-            .map(s => ({ videoId: s.videoId, title: s.title, thumbnail: s.thumbnail || '', by: s.by || '' }));
+            .filter(s => s && s.title && (s.videoId || s.localFileId))
+            .map(s => ({
+              source: s.source || (s.localFileId ? 'local' : 'youtube'),
+              videoId: s.videoId, localFileId: s.localFileId,
+              title: s.title, thumbnail: s.thumbnail || '', by: s.by || ''
+            }));
           if(cleaned.length === 0) return;
           const finalName = state.playlists[name] ? name + ' (นำเข้า)' : name;
           state.playlists[finalName] = cleaned;
@@ -999,9 +1226,10 @@ function importBackupFromFile(file){
       // History — merged in alongside existing entries, newest first, capped at 200.
       if(Array.isArray(data.history)){
         data.history.forEach(h => {
-          if(h && h.videoId && h.title){
+          if(h && h.title && (h.videoId || h.localFileId)){
             state.history.push({
-              id: uid(), videoId: h.videoId, title: h.title, thumbnail: h.thumbnail || '',
+              id: uid(), source: h.source || (h.localFileId ? 'local' : 'youtube'),
+              videoId: h.videoId, localFileId: h.localFileId, title: h.title, thumbnail: h.thumbnail || '',
               by: h.by || '', reason: h.reason || '', playedAt: h.playedAt || Date.now()
             });
             histCount++;
@@ -1011,42 +1239,16 @@ function importBackupFromFile(file){
         if(state.history.length > 200) state.history.length = 200;
       }
 
-      // Chords — only added for songs that don't already have chords saved locally, so importing
-      // never silently overwrites chords you've already worked out.
-      if(data.chords && typeof data.chords === 'object' && !Array.isArray(data.chords)){
-        Object.keys(data.chords).forEach(vid => {
-          const entry = data.chords[vid];
-          if(!entry || !Array.isArray(entry.timeline) || entry.timeline.length === 0) return;
-          if(state.chords[vid]){ chordSkipped++; return; }
-          state.chords[vid] = {
-            title: entry.title || vid,
-            mode: entry.mode === 'timed' ? 'timed' : 'simple',
-            raw: entry.raw || '',
-            secondsPerChord: entry.secondsPerChord || null,
-            timeline: entry.timeline
-              .filter(t => t && typeof t.t === 'number' && t.chord)
-              .map(t => ({ t: t.t, chord: String(t.chord) })),
-            savedAt: entry.savedAt || Date.now()
-          };
-          chordCount++;
-        });
-      }
-
-      if(plCount === 0 && histCount === 0 && chordCount === 0) throw new Error('nothing to import');
+      if(plCount === 0 && histCount === 0) throw new Error('nothing to import');
 
       savePlaylists();
       saveHistory();
-      saveChordsStorage();
       renderPlaylists();
-      renderChordLibrary();
 
       const parts = [];
       if(plCount) parts.push(`เพลย์ลิสต์ ${plCount}`);
       if(histCount) parts.push(`ประวัติ ${histCount} รายการ`);
-      if(chordCount) parts.push(`คอร์ด ${chordCount} เพลง`);
-      let msg = 'นำเข้าสำเร็จ: ' + parts.join(', ');
-      if(chordSkipped) msg += ` (ข้ามคอร์ด ${chordSkipped} เพลงที่มีอยู่แล้ว)`;
-      showToast(msg);
+      showToast('นำเข้าสำเร็จ: ' + parts.join(', '));
     }catch(err){
       showToast('นำเข้าไฟล์ไม่สำเร็จ — รูปแบบไฟล์ไม่ถูกต้อง', true);
     }
@@ -1065,15 +1267,19 @@ function renderHistory(){
   state.history.forEach(h => {
     const row = document.createElement('div');
     row.className = 'hist-row';
+    const badge = h.source === 'local' ? '<span class="source-badge local">💻</span>' : '';
     row.innerHTML = `
-      <img src="${h.thumbnail}" alt="">
+      <img src="${escapeHtml(h.thumbnail)}" alt="">
       <div class="meta">
-        <div class="title">${escapeHtml(h.title)}</div>
+        <div class="title">${badge}${escapeHtml(h.title)}</div>
         <div class="sub">${h.by ? 'เพิ่มโดย ' + escapeHtml(h.by) + ' · ' : ''}${escapeHtml(h.reason)} · ${formatTimeAgo(h.playedAt)}</div>
       </div>
       <button data-act="requeue" title="เพิ่มเข้าคิวอีกครั้ง">+ คิว</button>`;
     row.querySelector('[data-act="requeue"]').onclick = (e) => {
-      addSong({ videoId: h.videoId, title: h.title, thumbnail: h.thumbnail }, 'จอหลัก', false);
+      addSong({
+        source: h.source || 'youtube', videoId: h.videoId, localFileId: h.localFileId,
+        title: h.title, thumbnail: h.thumbnail
+      }, 'จอหลัก', false);
       e.target.textContent = 'เพิ่มแล้ว ✓';
       e.target.disabled = true;
     };
@@ -1087,6 +1293,21 @@ function clearHistory(){
   renderHistory();
 }
 
+// Clears the queue, scores, and history for a fresh event — but deliberately keeps saved playlists,
+// since those are the reusable thing people want to keep across different parties.
+function startNewParty(){
+  if(!confirm('เริ่มงานใหม่? ระบบจะล้างคิวเพลง คะแนน และประวัติทั้งหมด (เพลย์ลิสต์ที่บันทึกไว้จะไม่ถูกลบ)')) return;
+  state.queue = [];
+  state.currentId = null;
+  stopPlayer();
+  state.scores = [];
+  saveScores();
+  state.history = [];
+  saveHistory();
+  renderQueue();
+  showToast('เริ่มงานใหม่แล้ว — คิว คะแนน และประวัติถูกล้างแล้ว');
+}
+
 /* ---------------- Search (single-screen mode: search & queue/play directly) ---------------- */
 function updateHostSearchHint(){
   const key = getApiKey();
@@ -1098,25 +1319,87 @@ function updateHostSearchHint(){
 function makeHostResultCard(v){
   const card = document.createElement('div');
   card.className = 'result-card';
+  const badge = v.source === 'local'
+    ? '<span class="source-badge local">💻 อุปกรณ์</span>'
+    : '<span class="source-badge yt">▶ YouTube</span>';
   card.innerHTML = `
-    <img src="${v.thumbnail}" alt="">
+    <img src="${escapeHtml(v.thumbnail)}" alt="">
     <div class="meta">
-      <div class="title">${escapeHtml(v.title)}</div>
+      <div class="title">${badge}${escapeHtml(v.title)}</div>
       <div class="channel">${escapeHtml(v.channel)}</div>
     </div>
     <div class="result-actions">
       <button data-act="play">▶ เล่นเลย</button>
       <button data-act="queue">+ คิว</button>
     </div>`;
+  const songPayload = v.source === 'local'
+    ? { source: 'local', localFileId: v.localFileId, title: v.title }
+    : { source: 'youtube', videoId: v.videoId, title: v.title, thumbnail: v.thumbnail };
   card.querySelector('[data-act="play"]').onclick = () => {
-    addSong({ videoId: v.videoId, title: v.title, thumbnail: v.thumbnail }, 'จอหลัก', true);
+    addSong(songPayload, 'จอหลัก', true);
   };
   card.querySelector('[data-act="queue"]').onclick = (e) => {
-    addSong({ videoId: v.videoId, title: v.title, thumbnail: v.thumbnail }, 'จอหลัก', false);
+    addSong(songPayload, 'จอหลัก', false);
     e.target.textContent = 'เพิ่มแล้ว ✓';
     e.target.disabled = true;
   };
   return card;
+}
+
+// Live, instant filtering of the LOCAL music library only as the user types — free (no API calls),
+// so it can safely update on every keystroke. Calling the YouTube API on every keystroke instead
+// would burn through the API quota very fast, so that still waits for an explicit "ค้นหา" click/Enter.
+function liveLocalSearch(q){
+  const resultsEl = document.getElementById('host-search-results');
+  if(!q){ resultsEl.innerHTML = ''; return; }
+  if(extractVideoId(q)) return; // a pasted YouTube link — leave it for the explicit search instead
+  const matches = state.localLibrary
+    .filter(f => f.title.toLowerCase().includes(q.toLowerCase()))
+    .slice(0, 15)
+    .map(f => ({ source: 'local', localFileId: f.id, title: f.title, channel: 'ไฟล์ในเครื่อง', thumbnail: LOCAL_FILE_THUMB }));
+  resultsEl.innerHTML = '';
+  matches.forEach(m => resultsEl.appendChild(makeHostResultCard(m)));
+  if(matches.length === 0){
+    const note = document.createElement('p');
+    note.className = 'hint';
+    note.textContent = 'ไม่พบไฟล์ในเครื่องที่ตรงกับคำนี้ — กด "ค้นหา" เพื่อค้นหาจาก YouTube ด้วย';
+    resultsEl.appendChild(note);
+  }
+}
+
+// "ยอดนิยม" — actual trending/popular MUSIC videos from YouTube (chart=mostPopular, Music category,
+// Thailand region), not the play history (that's now its own separate "ประวัติ" button).
+async function fetchPopularSongs(){
+  const resultsEl = document.getElementById('host-search-results');
+  document.getElementById('host-search-input').value = '';
+  const key = getApiKey();
+  if(!key){
+    resultsEl.innerHTML = '<p class="hint">ต้องตั้งค่า YouTube API Key ก่อนถึงจะดึงเพลงยอดนิยมได้ — ไปที่เมนู "⚙️ ตั้งค่า"</p>';
+    return;
+  }
+  resultsEl.innerHTML = '<p class="hint">กำลังโหลดเพลงยอดนิยม…</p>';
+  try{
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&chart=mostPopular&videoCategoryId=10&regionCode=TH&maxResults=20&key=${key}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if(data.error){
+      resultsEl.innerHTML = `<p class="hint">เกิดข้อผิดพลาด: ${escapeHtml(data.error.message)}</p>`;
+      return;
+    }
+    resultsEl.innerHTML = '';
+    (data.items || []).forEach(item => {
+      resultsEl.appendChild(makeHostResultCard({
+        source: 'youtube',
+        videoId: item.id,
+        title: item.snippet.title,
+        channel: item.snippet.channelTitle,
+        thumbnail: item.snippet.thumbnails.medium.url
+      }));
+    });
+    if((data.items || []).length === 0) resultsEl.innerHTML = '<p class="hint">ดึงเพลงยอดนิยมไม่สำเร็จ ลองใหม่อีกครั้ง</p>';
+  }catch(e){
+    resultsEl.innerHTML = '<p class="hint">ดึงเพลงยอดนิยมไม่สำเร็จ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</p>';
+  }
 }
 
 async function doHostSearch(){
@@ -1128,14 +1411,28 @@ async function doHostSearch(){
   if(videoId){
     resultsEl.innerHTML = '';
     resultsEl.appendChild(makeHostResultCard({
-      videoId, title: q, channel: 'ลิงก์ที่วาง', thumbnail: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
+      source: 'youtube', videoId, title: q, channel: 'ลิงก์ที่วาง', thumbnail: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
     }));
     return;
   }
 
+  // Local files (from the folder picked in ⚙️ ตั้งค่า) are matched by simple substring first —
+  // fast, no network needed, and shown alongside YouTube results either way.
+  const localMatches = state.localLibrary
+    .filter(f => f.title.toLowerCase().includes(q.toLowerCase()))
+    .slice(0, 8)
+    .map(f => ({ source: 'local', localFileId: f.id, title: f.title, channel: 'ไฟล์ในเครื่อง', thumbnail: LOCAL_FILE_THUMB }));
+
   const key = getApiKey();
   if(!key){
-    resultsEl.innerHTML = '<p class="hint">ยังไม่ได้ตั้งค่า API Key จึงค้นหาด้วยคำไม่ได้ — วางลิงก์ YouTube แทน หรือใส่ API Key ด้านล่าง</p>';
+    resultsEl.innerHTML = '';
+    localMatches.forEach(m => resultsEl.appendChild(makeHostResultCard(m)));
+    const note = document.createElement('p');
+    note.className = 'hint';
+    note.textContent = localMatches.length
+      ? 'แสดงเฉพาะผลจากไฟล์ในเครื่อง — ยังไม่ได้ตั้งค่า API Key จึงค้นหาจาก YouTube ด้วยคำไม่ได้ (วางลิงก์ YouTube แทนได้)'
+      : 'ยังไม่ได้ตั้งค่า API Key จึงค้นหาด้วยคำไม่ได้ — วางลิงก์ YouTube แทน หรือใส่ API Key ที่เมนู "⚙️ ตั้งค่า"';
+    resultsEl.appendChild(note);
     return;
   }
 
@@ -1149,25 +1446,80 @@ async function doHostSearch(){
       return;
     }
     resultsEl.innerHTML = '';
+    localMatches.forEach(m => resultsEl.appendChild(makeHostResultCard(m)));
     (data.items || []).forEach(item => {
       resultsEl.appendChild(makeHostResultCard({
+        source: 'youtube',
         videoId: item.id.videoId,
         title: item.snippet.title,
         channel: item.snippet.channelTitle,
         thumbnail: item.snippet.thumbnails.medium.url
       }));
     });
-    if((data.items || []).length === 0) resultsEl.innerHTML = '<p class="hint">ไม่พบผลลัพธ์ ลองคำค้นอื่น</p>';
+    if((data.items || []).length === 0 && localMatches.length === 0) resultsEl.innerHTML = '<p class="hint">ไม่พบผลลัพธ์ ลองคำค้นอื่น</p>';
   }catch(e){
-    resultsEl.innerHTML = '<p class="hint">ค้นหาไม่สำเร็จ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</p>';
+    resultsEl.innerHTML = '';
+    localMatches.forEach(m => resultsEl.appendChild(makeHostResultCard(m)));
+    const note = document.createElement('p');
+    note.className = 'hint';
+    note.textContent = 'ค้นหาจาก YouTube ไม่สำเร็จ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต (แสดงเฉพาะผลจากไฟล์ในเครื่องได้ตามปกติ)';
+    resultsEl.appendChild(note);
   }
 }
 
+/* ---------------- Local music library (host only — files never leave this device) ---------------- */
+function scanLocalFolder(fileList){
+  const audioExts = /\.(mp3|mp4|m4a|wav|ogg|oga|webm|mov|avi|flac|aac|wma)$/i;
+  state.localLibrary = [];
+  localFiles.clear();
+  Array.from(fileList).forEach(file => {
+    if(!audioExts.test(file.name)) return;
+    const relPath = file.webkitRelativePath || file.name;
+    // Deterministic ID from the file's path (not random) — so re-selecting the same folder later
+    // (e.g. after a page refresh, which this API requires every time) reconnects existing queue
+    // entries, playlists, and history to the same files instead of orphaning them with stale IDs.
+    let hash = 0;
+    for(let i = 0; i < relPath.length; i++){ hash = ((hash << 5) - hash + relPath.charCodeAt(i)) | 0; }
+    const id = 'lf_' + Math.abs(hash).toString(36);
+    localFiles.set(id, file);
+    state.localLibrary.push({
+      id,
+      title: file.name.replace(/\.[^.]+$/, ''),
+      path: relPath
+    });
+  });
+  renderLocalLibraryStatus();
+  connections.forEach(c => { if(c.open) c.send({ type: 'LOCAL_LIBRARY', localLibrary: state.localLibrary }); });
+  showToast(`พบเพลงในเครื่อง ${state.localLibrary.length} ไฟล์`);
+}
+
+function clearLocalFolder(){
+  state.localLibrary = [];
+  localFiles.clear();
+  renderLocalLibraryStatus();
+  connections.forEach(c => { if(c.open) c.send({ type: 'LOCAL_LIBRARY', localLibrary: [] }); });
+}
+
+function renderLocalLibraryStatus(){
+  const el = document.getElementById('local-library-status');
+  if(!el) return;
+  if(state.localLibrary.length === 0){
+    el.textContent = 'ยังไม่ได้เลือกโฟลเดอร์เพลง';
+    document.getElementById('btn-clear-local-folder').style.display = 'none';
+  } else {
+    el.textContent = `พบเพลง ${state.localLibrary.length} ไฟล์ (รวมโฟลเดอร์ย่อย) — ต้องเลือกโฟลเดอร์ใหม่ทุกครั้งที่รีเฟรชหน้านี้`;
+    document.getElementById('btn-clear-local-folder').style.display = 'inline-flex';
+  }
+}
+
+
 /* ---------------- Wiring ---------------- */
-document.getElementById('btn-qr').onclick = () => openModal('qr-modal');
+document.getElementById('btn-qr').onclick = () => { renderConnectedDevices(); openModal('qr-modal'); };
 document.getElementById('btn-playlist').onclick = () => { renderPlaylists(); openModal('playlist-modal'); };
 document.getElementById('btn-search').onclick = () => {
   updateHostSearchHint();
+  document.getElementById('host-search-input').value = '';
+  document.getElementById('host-search-results').innerHTML = '';
   openModal('search-modal');
 };
 document.getElementById('btn-toggle-suggested').onclick = () => {
@@ -1176,13 +1528,13 @@ document.getElementById('btn-toggle-suggested').onclick = () => {
   if(!showing) renderSuggestedChips('host-suggested-chips', 'host-search-input', doHostSearch);
   section.style.display = showing ? 'none' : 'block';
 };
-document.getElementById('btn-history').onclick = () => { renderHistory(); openModal('history-modal'); };
+document.getElementById('btn-settings').onclick = () => openModal('settings-modal');
 document.getElementById('btn-chords').onclick = openChordsModal;
 document.querySelectorAll('.mode-tab').forEach(tab => {
   tab.onclick = () => setChordMode(tab.dataset.mode);
 });
 document.getElementById('btn-chords-save').onclick = () => {
-  if(!chordTargetVideoId) return;
+  if(!chordTargetKey) return;
   const mode = document.querySelector('.mode-tab.active').dataset.mode;
   let timeline, raw, secondsPerChord = null;
   if(mode === 'simple'){
@@ -1197,20 +1549,22 @@ document.getElementById('btn-chords-save').onclick = () => {
     showToast('กรุณาพิมพ์คอร์ดก่อนบันทึก', true);
     return;
   }
-  state.chords[chordTargetVideoId] = { title: chordTargetTitle, mode, raw, secondsPerChord, timeline, savedAt: Date.now() };
+  state.chords[chordTargetKey] = { title: chordTargetTitle, mode, raw, secondsPerChord, timeline, savedAt: Date.now() };
   saveChordsStorage();
   renderChordLibrary();
   loadChordFormForTarget();
   showToast('บันทึกคอร์ดแล้ว');
 };
 document.getElementById('btn-chords-delete').onclick = () => {
-  if(!chordTargetVideoId || !state.chords[chordTargetVideoId]) return;
-  delete state.chords[chordTargetVideoId];
+  if(!chordTargetKey || !state.chords[chordTargetKey]) return;
+  delete state.chords[chordTargetKey];
   saveChordsStorage();
   renderChordLibrary();
   loadChordFormForTarget();
   showToast('ลบคอร์ดเพลงนี้แล้ว');
 };
+document.getElementById('btn-popular').onclick = fetchPopularSongs;
+document.getElementById('btn-open-history').onclick = () => { closeModal('search-modal'); renderHistory(); openModal('history-modal'); };
 document.getElementById('btn-clear-history').onclick = () => {
   if(confirm('ล้างประวัติเพลงที่เล่นไปแล้วทั้งหมด?')) clearHistory();
 };
@@ -1249,12 +1603,80 @@ document.getElementById('btn-fair-toggle').onclick = () => {
   }
   renderQueue();
 };
+document.getElementById('btn-screen2-toggle').onclick = () => {
+  state.screen2Enabled = !state.screen2Enabled;
+  sessionStorage.setItem('sriKaraoke_screen2Enabled', state.screen2Enabled ? '1' : '0');
+  const btn = document.getElementById('btn-screen2-toggle');
+  btn.textContent = state.screen2Enabled ? 'เปิด' : 'ปิด';
+  btn.classList.toggle('accent', state.screen2Enabled);
+  document.getElementById('btn-screen2-qr').style.display = state.screen2Enabled ? 'flex' : 'none';
+  document.getElementById('audio-output-row').style.display = state.screen2Enabled ? 'flex' : 'none';
+  if(!state.screen2Enabled && state.audioOutput === 'screen2'){
+    // Screen 2 just got turned off — bring audio back to the main screen automatically.
+    state.audioOutput = 'screen1';
+    sessionStorage.setItem('sriKaraoke_audioOutput', 'screen1');
+    document.getElementById('btn-audio-output-toggle').textContent = 'จอหลัก';
+    applyAudioOutput();
+  }
+  if(state.screen2Enabled && myRoomId) renderRoomQR();
+};
+document.getElementById('btn-audio-output-toggle').onclick = () => {
+  state.audioOutput = state.audioOutput === 'screen1' ? 'screen2' : 'screen1';
+  sessionStorage.setItem('sriKaraoke_audioOutput', state.audioOutput);
+  document.getElementById('btn-audio-output-toggle').textContent = state.audioOutput === 'screen2' ? 'จอที่ 2' : 'จอหลัก';
+  applyAudioOutput();
+  showToast(state.audioOutput === 'screen2' ? '🔊 เสียงย้ายไปออกที่จอที่ 2 แล้ว' : '🔊 เสียงย้ายกลับมาที่จอหลักแล้ว');
+};
+document.getElementById('btn-pick-local-folder').onclick = () => document.getElementById('local-folder-input').click();
+document.getElementById('local-folder-input').addEventListener('change', (e) => {
+  if(e.target.files && e.target.files.length) scanLocalFolder(e.target.files);
+});
+document.getElementById('btn-clear-local-folder').onclick = () => {
+  clearLocalFolder();
+  document.getElementById('local-folder-input').value = '';
+};
+document.getElementById('btn-screen2-qr').onclick = () => {
+  closeModal('settings-modal');
+  if(myRoomId) renderRoomQR();
+  openModal('qr-screen2-modal');
+};
 document.getElementById('btn-toggle-queue').onclick = () => {
   const main = document.getElementById('main-content');
   const hidden = main.classList.toggle('queue-hidden');
   const btn = document.getElementById('btn-toggle-queue');
   btn.querySelector('.label').textContent = hidden ? 'แสดงคิว' : 'ซ่อนคิว';
 };
+document.getElementById('btn-new-party').onclick = startNewParty;
+
+/* ---------------- Power-saving mode (turns off the idle-screen animations, for weaker devices) ---------------- */
+let powerSaving = sessionStorage.getItem('sriKaraoke_powerSaving') === '1';
+function applyPowerSaving(){
+  document.body.classList.toggle('power-saving', powerSaving);
+  const btn = document.getElementById('btn-power-saving');
+  btn.classList.toggle('accent', powerSaving);
+  btn.textContent = powerSaving ? 'เปิด' : 'ปิด';
+}
+document.getElementById('btn-power-saving').onclick = () => {
+  powerSaving = !powerSaving;
+  sessionStorage.setItem('sriKaraoke_powerSaving', powerSaving ? '1' : '0');
+  applyPowerSaving();
+};
+
+/* ---------------- Dark / light theme (remembered per device, not just per session) ---------------- */
+let lightTheme = localStorage.getItem('sriKaraoke_theme') === 'light';
+function applyTheme(){
+  document.body.classList.toggle('light-theme', lightTheme);
+  document.getElementById('btn-theme-toggle').textContent = lightTheme ? 'สว่าง' : 'มืด';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute('content', lightTheme ? '#FFFFFF' : '#1B1533');
+}
+document.getElementById('btn-theme-toggle').onclick = () => {
+  lightTheme = !lightTheme;
+  localStorage.setItem('sriKaraoke_theme', lightTheme ? 'light' : 'dark');
+  applyTheme();
+};
+applyTheme();
+applyPowerSaving();
 
 /* ---------------- App-level fullscreen (the whole app UI, not YouTube's own fullscreen) ---------------- */
 function isFullscreen(){
@@ -1280,6 +1702,20 @@ document.getElementById('btn-fullscreen').onclick = () => {
   document.addEventListener(evt, updateFullscreenBtn);
 });
 
+document.getElementById('btn-logout').onclick = () => {
+  if(!confirm('ต้องการออกจากระบบใช่หรือไม่? การเล่นเพลงและการเชื่อมต่อกับรีโมท/จอที่ 2 ทั้งหมดจะหยุดลง')) return;
+  try{ if(peer) peer.destroy(); }catch(e){}
+  try{ stopPlayer(); }catch(e){}
+  try{ window.close(); }catch(e){}
+  setTimeout(() => {
+    document.body.innerHTML = `
+      <div style="height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--ink);color:var(--text);text-align:center;padding:24px;font-family:'Sarabun',sans-serif;">
+        <div style="font-family:'Kanit',sans-serif;font-size:24px;font-weight:700;">ออกจากระบบแล้ว</div>
+        <p style="color:var(--text-dim);max-width:360px;">กรุณาปิดแท็บ/หน้าต่างนี้ด้วยตนเอง</p>
+      </div>`;
+  }, 250);
+};
+
 /* ---------------- Tap-to-toggle header (like a video player's auto-hide controls) ---------------- */
 function setHeaderCollapsed(collapsed){
   document.querySelector('header').classList.toggle('collapsed', collapsed);
@@ -1289,19 +1725,13 @@ function toggleHeaderCollapsed(){
   setHeaderCollapsed(!document.querySelector('header').classList.contains('collapsed'));
 }
 document.getElementById('btn-toggle-header').onclick = toggleHeaderCollapsed;
-// Tapping the video area itself toggles the header too. A direct tap that lands on the YouTube
-// iframe can't be caught by a normal click listener (cross-origin iframes don't bubble clicks to
-// the parent page), so those taps are detected indirectly via the focus shift they cause instead.
+// Tapping the video itself must always reach YouTube's own controls (captions, settings, seek bar,
+// play/pause) normally — so the header toggle is deliberately NOT tied to clicks on the video/overlay
+// bars. The small ▲/▼ handle below is the one guaranteed way to show/hide the menu; tapping the idle
+// screen (shown only when nothing is playing, so it never competes with YouTube's controls) also works.
 document.getElementById('idle-screen').addEventListener('click', (e) => {
   if(e.target.id === 'btn-start-audio' || e.target.closest('#btn-start-audio')) return;
   toggleHeaderCollapsed();
-});
-document.getElementById('now-playing-bar').addEventListener('click', toggleHeaderCollapsed);
-document.getElementById('next-up-bar').addEventListener('click', toggleHeaderCollapsed);
-window.addEventListener('blur', () => {
-  if(ytPlayer && typeof ytPlayer.getIframe === 'function' && document.activeElement === ytPlayer.getIframe()){
-    toggleHeaderCollapsed();
-  }
 });
 document.getElementById('btn-skip').onclick = skip;
 document.getElementById('btn-prev').onclick = prevSong;
@@ -1325,7 +1755,7 @@ document.getElementById('import-pl-file').addEventListener('change', (e) => {
 });
 document.getElementById('host-search-input').addEventListener('keydown', (e) => { if(e.key === 'Enter') doHostSearch(); });
 document.getElementById('host-search-input').addEventListener('input', (e) => {
-  if(!e.target.value.trim()) document.getElementById('host-search-results').innerHTML = '';
+  liveLocalSearch(e.target.value.trim());
 });
 document.getElementById('btn-host-search').onclick = doHostSearch;
 document.getElementById('host-api-key-input').value = getApiKey();
@@ -1368,6 +1798,23 @@ if(state.fairQueueMode){
   btn.classList.add('on');
   document.getElementById('fair-hint').style.display = 'block';
 }
+// Same for the Second Screen toggle
+if(state.screen2Enabled){
+  document.getElementById('btn-screen2-toggle').textContent = 'เปิด';
+  document.getElementById('btn-screen2-toggle').classList.add('accent');
+  document.getElementById('btn-screen2-qr').style.display = 'flex';
+  document.getElementById('audio-output-row').style.display = 'flex';
+  document.getElementById('btn-audio-output-toggle').textContent = state.audioOutput === 'screen2' ? 'จอที่ 2' : 'จอหลัก';
+}
+
+// The main screen's own tab rarely sleeps (it's usually a plugged-in TV/box), but this covers the
+// case where it does — e.g. a laptop used as the host going to sleep, or the browser backgrounding
+// the tab. Check the signaling connection the moment the tab becomes visible again.
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState !== 'visible' || !peer) return;
+  if(peer.destroyed){ initPeer(); }
+  else if(peer.disconnected){ peer.reconnect(); }
+});
 
 initPeer();
 renderQueue();

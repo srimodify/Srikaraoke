@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sri Karaoke — จอที่ 2</title>
+<meta name="theme-color" content="#0F0C1E">
+<link rel="manifest" href="manifest-screen2.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700&family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0F0C1E;
+  --panel:#1B1533;
+  --panel-2:#241C42;
+  --gold:#FFC857;
+  --magenta:#FF3D81;
+  --teal:#2EE6D6;
+  --text:#F5F1FA;
+  --text-dim:#B8AFD1;
+  --line:#352A5C;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;margin:0;}
+body{
+  background:#000;
+  color:var(--text);
+  font-family:'Sarabun',sans-serif;
+  min-height:100dvh;
+  overflow:hidden;
+}
+h1,h2,.display{font-family:'Kanit',sans-serif;}
+input,button{font-family:inherit;}
+
+/* ---- connect screen (shown until linked to a room) ---- */
+#connect-screen{
+  height:100dvh;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:16px;padding:32px 24px;text-align:center;
+  background:var(--ink);
+}
+#connect-screen .brand-mark{width:84px;height:84px;border-radius:50%;background:var(--panel-2);
+  display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:6px;object-fit:cover;}
+#connect-screen h1{margin:0;font-size:28px;}
+#connect-screen h1 span{color:var(--magenta);}
+#connect-screen p{color:var(--text-dim);font-size:14px;max-width:360px;line-height:1.6;margin:0;}
+.code-input-row{display:flex;gap:8px;margin-top:8px;width:100%;max-width:320px;}
+.code-input-row input{
+  flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:12px;padding:14px;font-size:18px;text-align:center;letter-spacing:3px;
+  font-family:'Kanit',sans-serif;
+}
+.code-input-row input:focus-visible{outline:2px solid var(--gold);}
+.code-input-row input:last-child{max-width:110px;flex:0 0 110px;}
+#connect-screen button.go{
+  background:var(--gold);color:#1B1533;border:none;border-radius:12px;
+  padding:14px 22px;font-weight:600;font-size:15px;cursor:pointer;
+}
+#connect-status{font-size:13px;color:var(--teal);min-height:18px;}
+#https-warning{
+  display:none;
+  background:#3A2A0F;border-bottom:1px solid #6B4E1A;color:var(--gold);
+  font-size:12px;text-align:center;padding:7px 14px;
+}
+#reconnect-banner{
+  display:none;
+  position:fixed;top:0;left:0;right:0;z-index:50;
+  background:#3A0F1F;border-bottom:1px solid var(--magenta);color:#FF9FC1;
+  font-size:12px;text-align:center;padding:7px 14px;
+}
+
+/* ---- fullscreen display (main event) ---- */
+#display-screen{
+  display:none;
+  position:relative;
+  width:100vw;height:100dvh;
+  background:#000;
+  overflow:hidden;
+}
+#d-player-wrap{position:absolute;inset:0;}
+#d-player{width:100%;height:100%;}
+
+#d-idle{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:18px;
+  background:radial-gradient(circle at 50% 40%, #241C42 0%, #0F0C1E 70%);
+}
+#d-idle img{width:110px;height:110px;border-radius:50%;object-fit:cover;filter:drop-shadow(0 0 30px rgba(255,200,87,.5));}
+#d-idle .display{font-size:clamp(22px,4vw,42px);font-weight:700;text-align:center;color:var(--text);}
+#d-idle .display span{color:var(--gold);}
+#d-idle p{color:var(--text-dim);font-size:15px;max-width:420px;text-align:center;line-height:1.6;}
+#d-idle .display.empty-queue-blink{font-size:clamp(16px,2.4vw,26px);}
+.empty-queue-blink{color:var(--gold);animation:d-pulse 1.1s ease-in-out infinite;}
+
+#d-now-playing{
+  position:absolute;left:0;right:0;bottom:0;
+  padding:5vh 5vw 4vh;
+  background:linear-gradient(to top, rgba(0,0,0,.85) 0%, rgba(0,0,0,.5) 40%, transparent 100%);
+  pointer-events:none;
+  display:none;
+}
+#d-np-title{
+  font-family:'Kanit',sans-serif;font-weight:700;
+  font-size:clamp(22px,4vw,44px);color:#fff;
+  text-shadow:0 2px 14px rgba(0,0,0,.9);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+#d-np-by{font-size:clamp(13px,1.6vw,18px);color:var(--text-dim);margin-top:4px;}
+
+#d-next-up{
+  position:absolute;top:0;left:0;right:0;
+  padding:3vh 5vw;
+  background:linear-gradient(to bottom, rgba(0,0,0,.75), transparent);
+  pointer-events:none;
+  display:none;
+  animation:d-pulse 1.1s ease-in-out infinite;
+}
+@keyframes d-pulse{ 0%,100%{opacity:1;} 50%{opacity:.4;} }
+#d-next-up .label{font-size:clamp(12px,1.4vw,16px);font-weight:600;color:var(--teal);}
+#d-next-up.warn .label{color:var(--gold);}
+#d-next-up .title{
+  font-family:'Kanit',sans-serif;font-weight:600;
+  font-size:clamp(18px,2.6vw,30px);color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;
+}
+
+/* ---- singing score popup (mirrors host/remote) ---- */
+.score-popup-overlay{
+  display:none;
+  position:fixed;inset:0;z-index:100;
+  align-items:center;justify-content:center;
+  background:rgba(6,4,15,.75);
+}
+.score-popup-box{
+  background:linear-gradient(160deg, #241C42 0%, #1B1533 100%);
+  border:1px solid var(--line);border-radius:28px;
+  padding:5vh 6vw;text-align:center;
+  min-width:320px;max-width:80vw;
+  box-shadow:0 20px 60px rgba(0,0,0,.5);
+  animation:score-pop .35s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes score-pop{ from{opacity:0;transform:scale(.8);} to{opacity:1;transform:scale(1);} }
+.score-stage-title{font-family:'Kanit',sans-serif;font-size:clamp(16px,2vw,24px);color:var(--text-dim);margin-bottom:10px;}
+.score-singer{font-family:'Kanit',sans-serif;font-size:clamp(22px,3vw,34px);font-weight:700;color:var(--text);}
+.score-song{font-size:clamp(13px,1.6vw,18px);color:var(--text-dim);margin:4px 0 18px;}
+.score-number{font-family:'Kanit',sans-serif;font-weight:700;font-size:clamp(60px,10vw,120px);line-height:1;text-shadow:0 0 30px currentColor;}
+.score-tier{font-family:'Kanit',sans-serif;font-size:clamp(18px,2.4vw,28px);font-weight:600;margin-top:8px;}
+.leaderboard-list{display:flex;flex-direction:column;gap:10px;margin-top:6px;min-width:340px;}
+.lb-row{
+  display:grid;grid-template-columns:32px 1fr auto;gap:14px;align-items:center;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:12px 18px;text-align:left;
+}
+.lb-row:nth-child(1) .lb-rank{color:var(--gold);}
+.lb-rank{font-family:'Kanit',sans-serif;font-weight:700;font-size:clamp(16px,2vw,22px);color:var(--text-dim);}
+.lb-info{min-width:0;}
+.lb-name{font-size:clamp(14px,1.6vw,18px);font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lb-song{font-size:clamp(11px,1.3vw,14px);color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lb-score{font-family:'Kanit',sans-serif;font-weight:700;font-size:clamp(18px,2.2vw,26px);color:var(--gold);}
+
+@media (prefers-reduced-motion: reduce){
+  #d-next-up{ animation:none !important; opacity:1 !important; }
+}
+</style>
+</head>
+<body>
+
+<div id="https-warning">⚠️ กำลังเปิดผ่าน HTTP — การเชื่อมต่ออาจไม่เสถียร แนะนำให้เปิดผ่าน HTTPS</div>
+<div id="reconnect-banner">🔄 การเชื่อมต่อขาดหาย กำลังเชื่อมต่อจอหลักใหม่…</div>
+
+<div id="connect-screen">
+  <img class="brand-mark" src="icons/icon-192.png" alt="Sri Karaoke">
+  <h1>Sri<span>Karaoke</span> — จอที่ 2</h1>
+  <p>จอแสดงผลเสริม สำหรับวางไว้ให้นักร้องหรือผู้ชมดู — แสดงวิดีโอเต็มจอ ชื่อเพลง เพลงถัดไป และคะแนนร้องเพลง เชื่อมต่อกับจอหลักโดยการสแกน QR "จอที่ 2" จากเมนูตั้งค่าของจอหลัก</p>
+  <div class="code-input-row">
+    <input type="text" id="room-input" placeholder="รหัสห้อง" maxlength="24">
+    <input type="text" id="pin-input" placeholder="PIN" maxlength="4" inputmode="numeric">
+    <button class="go" id="btn-connect">เชื่อมต่อ</button>
+  </div>
+  <div id="connect-status"></div>
+</div>
+
+<div id="display-screen">
+  <div id="d-player-wrap">
+    <div id="d-player"></div>
+    <div id="d-idle">
+      <img src="icons/icon-512.png" alt="">
+      <div class="display">รอเพลงถัดไป... <span>Sri Karaoke</span></div>
+      <p>ยังไม่มีเพลงเล่นอยู่ตอนนี้ — เพลงจะขึ้นแสดงที่นี่โดยอัตโนมัติ</p>
+      <div class="display empty-queue-blink" id="d-empty-queue-msg" style="display:none;">⚠️ ไม่มีเพลงในคิว...กรุณาเลือกเพลง</div>
+    </div>
+  </div>
+  <div id="d-next-up">
+    <div class="label">▶ ถัดไป</div>
+    <div class="title" id="d-next-title"></div>
+  </div>
+  <div id="d-now-playing">
+    <div id="d-np-title"></div>
+    <div id="d-np-by"></div>
+  </div>
+</div>
+
+<div class="score-popup-overlay" id="score-popup-overlay">
+  <div class="score-popup-box" id="score-popup-box"></div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://www.youtube.com/iframe_api"></script>
+<script src="screen2.js"></script>
+</body>
+</html>

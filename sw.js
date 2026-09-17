@@ -2,10 +2,13 @@ const CACHE_NAME = 'sri-karaoke-v1';
 const APP_SHELL = [
   './index.html',
   './remote.html',
+  './screen2.html',
   './app.js',
   './remote.js',
+  './screen2.js',
   './manifest.json',
   './manifest-remote.json',
+  './manifest-screen2.json',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];

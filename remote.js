@@ -7,6 +7,9 @@
    =========================================================== */
 
 const STORAGE_APIKEY = 'sriKaraoke_ytApiKey';
+const LOCAL_FILE_THUMB = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="%23241C42"/><path d="M26 42a6 6 0 1 1-2-4.5V16l18-4v20.5a6 6 0 1 1-4-5.6V16.8l-10 2.2V42a6 6 0 0 1-2 0z" fill="%23FFC857"/></svg>'
+);
 // Same default key + override pattern as the host page (shared localStorage on the same origin).
 const DEFAULT_API_KEY = 'AIzaSyBg5hplav7HzIHfXoDWlwZeENvQ7nb5i6Y';
 function getApiKey(){
@@ -94,9 +97,7 @@ function extractVideoId(input){
   return null;
 }
 function escapeHtml(s){
-  const d = document.createElement('div');
-  d.textContent = s || '';
-  return d.innerHTML;
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 /* ---------------- Connect ---------------- */
@@ -145,6 +146,20 @@ function scheduleReconnect(){
   }, delay);
 }
 
+// Phones suspend background tabs when the screen locks/sleeps, which can silently kill the WebRTC
+// connection without ever firing a 'close' event. The moment the screen wakes back up, check the
+// connection right away instead of waiting for PeerJS to eventually notice — using the same room
+// code/PIN/admin token already remembered, so no re-scan of the QR code is needed.
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState !== 'visible' || !currentRoomId || authFailed) return;
+  const stale = !conn || !conn.open || !peer || peer.disconnected || peer.destroyed;
+  if(stale){
+    reconnectAttempts = 0;
+    if(reconnectTimer){ clearTimeout(reconnectTimer); reconnectTimer = null; }
+    connectToRoom(currentRoomId, currentPin, currentAdminToken, true);
+  }
+});
+
 function send(msg){
   if(conn && conn.open) conn.send(msg);
 }
@@ -190,10 +205,22 @@ function handleHostMessage(msg){
     renderVolume();
     return;
   }
+  if(msg.type === 'LOCAL_LIBRARY'){
+    myLocalLibrary = msg.localLibrary || [];
+    return;
+  }
+  if(msg.type === 'AUDIO_OUTPUT'){
+    myAudioOutput = msg.output || 'screen1';
+    return;
+  }
   if(msg.type === 'SCORE_ANNOUNCE'){
     showScorePopup(msg.entry, msg.leaderboard);
   }
 }
+
+/* ---------------- Local music library (metadata only — files stay on the host device) ---------------- */
+let myLocalLibrary = [];
+let myAudioOutput = 'screen1';
 
 /* ---------------- Singing score popup (mirrors host) ---------------- */
 let scorePopupTimer = null;
@@ -294,9 +321,9 @@ function renderQueueTab(){
     div.className = 'q-item' + (song.id === myState.currentId ? ' playing' : '');
     div.innerHTML = `
       <div class="idx">${song.id === myState.currentId ? '▶' : i + 1}</div>
-      <img src="${song.thumbnail}" alt="">
+      <img src="${escapeHtml(song.thumbnail)}" alt="">
       <div class="meta">
-        <div class="title">${escapeHtml(song.title)}</div>
+        <div class="title">${song.source === 'local' ? '<span class="source-badge local">💻</span>' : ''}${escapeHtml(song.title)}</div>
         <div class="by">${song.by ? 'เพิ่มโดย ' + escapeHtml(song.by) : ''}</div>
       </div>
       <div class="actions">
@@ -369,13 +396,24 @@ async function doSearch(){
   if(videoId){
     const thumbnail = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
     resultsEl.innerHTML = '';
-    resultsEl.appendChild(makeResultCard({ videoId, title: q, channel: 'ลิงก์ที่วาง', thumbnail }));
+    resultsEl.appendChild(makeResultCard({ videoId, title: q, channel: 'ลิงก์ที่วาง', thumbnail, source: 'youtube' }));
     return;
   }
 
+  const qLower = q.toLowerCase();
+  const localMatches = myLocalLibrary
+    .filter(f => f.title.toLowerCase().includes(qLower) || f.path.toLowerCase().includes(qLower))
+    .slice(0, 12);
+
   const key = getApiKey();
   if(!key){
-    resultsEl.innerHTML = '<p class="hint">ยังไม่ได้ตั้งค่า API Key จึงค้นหาด้วยคำไม่ได้ — วางลิงก์ YouTube แทน หรือไปตั้งค่า API Key ในแท็บ "ตั้งค่า"</p>';
+    resultsEl.innerHTML = '';
+    localMatches.forEach(m => resultsEl.appendChild(makeResultCard({
+      title: m.title, channel: m.path, thumbnail: LOCAL_FILE_THUMB, source: 'local', localFileId: m.id
+    })));
+    if(localMatches.length === 0){
+      resultsEl.innerHTML = '<p class="hint">ยังไม่ได้ตั้งค่า API Key จึงค้นหาจาก YouTube ไม่ได้ — วางลิงก์ YouTube แทน หรือไปตั้งค่า API Key ในแท็บ "ตั้งค่า" (ค้นหาจากไฟล์ในเครื่องจอหลักได้ตามปกติถ้ามีการเชื่อมต่อโฟลเดอร์ไว้)</p>';
+    }
     return;
   }
 
@@ -389,38 +427,51 @@ async function doSearch(){
       return;
     }
     resultsEl.innerHTML = '';
+    localMatches.forEach(m => resultsEl.appendChild(makeResultCard({
+      title: m.title, channel: m.path, thumbnail: LOCAL_FILE_THUMB, source: 'local', localFileId: m.id
+    })));
     (data.items || []).forEach(item => {
       resultsEl.appendChild(makeResultCard({
         videoId: item.id.videoId,
         title: item.snippet.title,
         channel: item.snippet.channelTitle,
-        thumbnail: item.snippet.thumbnails.medium.url
+        thumbnail: item.snippet.thumbnails.medium.url,
+        source: 'youtube'
       }));
     });
-    if((data.items || []).length === 0){
+    if((data.items || []).length === 0 && localMatches.length === 0){
       resultsEl.innerHTML = '<p class="hint">ไม่พบผลลัพธ์ ลองคำค้นอื่น</p>';
     }
   }catch(e){
-    resultsEl.innerHTML = '<p class="hint">ค้นหาไม่สำเร็จ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</p>';
+    resultsEl.innerHTML = '';
+    localMatches.forEach(m => resultsEl.appendChild(makeResultCard({
+      title: m.title, channel: m.path, thumbnail: LOCAL_FILE_THUMB, source: 'local', localFileId: m.id
+    })));
+    const note = document.createElement('p');
+    note.className = 'hint';
+    note.textContent = 'ค้นหาจาก YouTube ไม่สำเร็จ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต (แสดงเฉพาะผลจากไฟล์ในเครื่องจอหลักได้ตามปกติ)';
+    resultsEl.appendChild(note);
   }
 }
 
 function makeResultCard(v){
   const card = document.createElement('div');
   card.className = 'result-card';
+  const badge = v.source === 'local'
+    ? '<span class="source-badge local">💻 อุปกรณ์</span>'
+    : '<span class="source-badge yt">🌐 YouTube</span>';
   card.innerHTML = `
-    <img src="${v.thumbnail}" alt="">
+    <img src="${escapeHtml(v.thumbnail)}" alt="">
     <div class="meta">
-      <div class="title">${escapeHtml(v.title)}</div>
+      <div class="title">${badge}${escapeHtml(v.title)}</div>
       <div class="channel">${escapeHtml(v.channel)}</div>
     </div>
     <button>+ เพิ่ม</button>`;
   card.querySelector('button').onclick = () => {
-    send({
-      type: 'ADD_SONG',
-      song: { videoId: v.videoId, title: v.title, thumbnail: v.thumbnail },
-      from: nickname
-    });
+    const song = v.source === 'local'
+      ? { source: 'local', localFileId: v.localFileId, title: v.title, thumbnail: v.thumbnail }
+      : { source: 'youtube', videoId: v.videoId, title: v.title, thumbnail: v.thumbnail };
+    send({ type: 'ADD_SONG', song, from: nickname });
     card.querySelector('button').textContent = 'เพิ่มแล้ว ✓';
     card.querySelector('button').disabled = true;
   };
@@ -464,7 +515,7 @@ document.getElementById('btn-connect').onclick = () => {
 };
 document.getElementById('search-input').addEventListener('keydown', (e) => { if(e.key === 'Enter') doSearch(); });
 document.getElementById('search-input').addEventListener('input', (e) => {
-  if(!e.target.value.trim()) document.getElementById('search-results').innerHTML = '';
+  liveLocalSearchRemote(e.target.value.trim());
 });
 document.getElementById('btn-search').onclick = doSearch;
 

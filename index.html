@@ -22,6 +22,21 @@
   --text-dim:#B8AFD1;
   --line:#352A5C;
 }
+/* Light theme — remaps the same variables, so every component that already uses them (header,
+   modals, queue panel, buttons, text) switches automatically. The video/idle-screen area keeps its
+   own fixed dark colors on purpose (those are hardcoded, not variables) so it still looks like a
+   themed "stage" regardless of the UI theme. */
+body.light-theme{
+  --ink:#F4F2FA;
+  --panel:#FFFFFF;
+  --panel-2:#EFEBF7;
+  --gold:#B8860B;
+  --magenta:#D6266E;
+  --teal:#0E8C82;
+  --text:#241C42;
+  --text-dim:#6E6690;
+  --line:#DDD6EC;
+}
 *{box-sizing:border-box;}
 html,body{height:100%;}
 body{
@@ -61,41 +76,29 @@ header.collapsed{
   opacity:0;
   border-bottom-color:transparent;
 }
-.header-toggle-bar{
-  flex-shrink:0;
-  display:flex;
-  justify-content:center;
-  background:var(--panel);
-  border-bottom:1px solid var(--line);
+.header-toggle-btn{
+  position:fixed;
+  top:10px;left:50%;
+  transform:translateX(-50%);
+  z-index:70;
+  width:44px;height:30px;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(27,21,51,.4);
+  backdrop-filter:blur(3px);
+  border:1px solid rgba(255,255,255,.18);
+  border-radius:999px;
+  color:var(--text-dim);
+  font-size:13px;cursor:pointer;
+  transition:background .2s, opacity .2s, color .2s;
 }
-.header-toggle-bar button{
-  background:none;border:none;color:var(--text-dim);
-  padding:3px 22px;font-size:11px;cursor:pointer;
-  line-height:1;
-}
-.header-toggle-bar button:hover{color:var(--text);}
-.header-toggle-bar button:focus-visible{outline:2px solid var(--gold);}
+.header-toggle-btn:hover{background:rgba(27,21,51,.85);color:var(--text);}
+.header-toggle-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 
-#chord-bar{
-  flex-shrink:0;
-  display:flex;
-  align-items:baseline;
-  gap:18px;
-  padding:10px 24px;
-  background:var(--panel);
-  border-bottom:1px solid var(--line);
-}
-.chord-current{
-  font-family:'Kanit',sans-serif;font-weight:700;font-size:32px;color:var(--gold);
-  text-shadow:0 0 20px rgba(255,200,87,.4);
-  flex-shrink:0;
-}
-.chord-next-list{display:flex;align-items:baseline;gap:14px;overflow:hidden;}
-.chord-next{font-family:'Kanit',sans-serif;font-weight:600;font-size:18px;color:var(--text-dim);flex-shrink:0;}
 .brand{
   display:flex;
   align-items:center;
   gap:12px;
+  flex-shrink:0;
 }
 .brand-mark{
   width:38px;height:38px;border-radius:50%;
@@ -112,7 +115,28 @@ header.collapsed{
   letter-spacing:.3px;
 }
 .brand span{color:var(--magenta);}
-.header-actions{display:flex;gap:10px;}
+.header-actions{
+  display:flex;
+  flex:1 1 auto;
+  min-width:0;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;
+  scrollbar-color:var(--line) transparent;
+  padding-bottom:4px;
+}
+.header-actions::-webkit-scrollbar{height:5px;}
+.header-actions::-webkit-scrollbar-track{background:transparent;}
+.header-actions-inner{
+  display:flex;
+  gap:10px;
+  flex-wrap:nowrap;
+  flex-shrink:0;
+  margin-left:auto;
+}
+.header-actions::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+
 .icon-btn{
   background:var(--panel-2);
   border:1px solid var(--line);
@@ -122,9 +146,10 @@ header.collapsed{
   font-size:15px;
   cursor:pointer;
   display:flex;align-items:center;gap:8px;
+  flex-shrink:0;
   transition:background .15s, transform .1s;
 }
-.icon-btn:hover{background:#2E2450;}
+.icon-btn:hover{background:var(--line);}
 .icon-btn:focus-visible{outline:3px solid var(--gold);outline-offset:2px;}
 .icon-btn:active{transform:scale(.97);}
 .icon-btn.accent{background:var(--gold);color:#1B1533;border-color:var(--gold);font-weight:600;}
@@ -169,6 +194,12 @@ main.queue-hidden #player-section{flex:1 1 100%;}
   border:1px solid rgba(255,255,255,.08);
   max-width:88%;
 }
+.idle-content.no-box{
+  background:transparent;
+  backdrop-filter:none;
+  padding:0;
+  border:none;
+}
 #idle-screen .display{
   font-size:clamp(28px,4vw,56px);
   font-weight:700;
@@ -176,6 +207,13 @@ main.queue-hidden #player-section{flex:1 1 100%;}
 }
 #idle-screen .display span{color:var(--gold);}
 #idle-screen p{color:var(--text-dim);font-size:18px;max-width:520px;text-align:center;line-height:1.6;}
+#idle-screen .display.empty-queue-blink{
+  font-size:clamp(16px,2.2vw,24px);
+}
+.empty-queue-blink{
+  color:var(--gold);
+  animation:next-up-pulse 1.1s ease-in-out infinite;
+}
 #btn-start-audio{
   background:var(--magenta);color:#fff;border:none;border-radius:16px;
   padding:16px 32px;font-size:19px;font-weight:600;cursor:pointer;
@@ -319,7 +357,14 @@ main.queue-hidden #player-section{flex:1 1 100%;}
 @media (prefers-reduced-motion: reduce){
   .spotlight, .disco-glare, .disco-dot, .led, #screensaver-logo{ animation: none !important; }
   .disco-glare{ display:none; }
+  #next-up-bar{ animation: none !important; opacity:1 !important; }
 }
+/* Manual power-saving toggle — same effect as above, for weaker devices (e.g. budget Android boxes)
+   where the animated screensaver might cause stutter even though the user has no motion sensitivity. */
+body.power-saving .spotlight, body.power-saving .disco-glare, body.power-saving .disco-dot,
+body.power-saving .led, body.power-saving #screensaver-logo{ animation: none !important; }
+body.power-saving .disco-glare{ display:none; }
+body.power-saving #next-up-bar{ animation: none !important; opacity:1 !important; }
 
 
 
@@ -390,21 +435,22 @@ main.queue-hidden #player-section{flex:1 1 100%;}
 .lb-song{font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .lb-score{font-family:'Kanit',sans-serif;font-weight:700;font-size:20px;color:var(--gold);}
 
-#now-playing-bar{
-  position:absolute;left:0;right:0;bottom:0;
-  padding:16px 24px;
-  background:linear-gradient(to top, rgba(0,0,0,.85), transparent);
+#chord-bar{
+  flex-shrink:0;
   display:flex;
-  align-items:center;
-  gap:14px;
-  pointer-events:auto;
-  cursor:pointer;
+  align-items:baseline;
+  gap:18px;
+  padding:10px 24px;
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
 }
-#now-playing-bar .thumb{width:64px;height:64px;border-radius:10px;object-fit:cover;border:2px solid var(--gold);}
-#now-playing-bar .info{min-width:0;}
-#now-playing-bar .info .label{font-size:13px;color:var(--gold);font-weight:600;}
-#now-playing-bar .info h3{margin:2px 0 0;font-size:22px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60vw;}
-#now-playing-bar .info .by{font-size:14px;color:var(--text-dim);}
+.chord-current{
+  font-family:'Kanit',sans-serif;font-weight:700;font-size:32px;color:var(--gold);
+  text-shadow:0 0 20px rgba(255,200,87,.4);
+  flex-shrink:0;
+}
+.chord-next-list{display:flex;align-items:baseline;gap:14px;overflow:hidden;}
+.chord-next{font-family:'Kanit',sans-serif;font-weight:600;font-size:18px;color:var(--text-dim);flex-shrink:0;}
 
 #next-up-bar{
   position:absolute;top:0;left:0;right:0;
@@ -413,13 +459,50 @@ main.queue-hidden #player-section{flex:1 1 100%;}
   display:flex;
   align-items:center;
   gap:10px;
-  pointer-events:auto;
-  cursor:pointer;
+  pointer-events:none;
+  animation:next-up-pulse 1.1s ease-in-out infinite;
+}
+@keyframes next-up-pulse{
+  0%,100%{ opacity:1; }
+  50%{ opacity:.4; }
 }
 .next-up-label{font-size:13px;font-weight:600;color:var(--teal);flex-shrink:0;}
 .next-up-title{font-size:15px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .next-up-warn{font-size:14px;font-weight:600;color:var(--gold);}
 #next-up-bar.warn .next-up-label{color:var(--gold);}
+
+/* ---------- "now playing" marquee — overlays the bottom of the video, transparent so the video
+   underneath stays visible; text continuously runs right-to-left like a ticker ---------- */
+#now-playing-bar{
+  position:absolute;left:0;right:0;bottom:0;
+  height:46px;
+  overflow:hidden;
+  background:transparent;
+  pointer-events:none;
+}
+.np-marquee-track{
+  position:relative;
+  width:100%;height:100%;
+}
+.np-marquee-text{
+  position:absolute;
+  top:50%;
+  left:100%;
+  transform:translateY(-50%);
+  white-space:nowrap;
+  font-family:'Kanit',sans-serif;
+  font-weight:600;
+  font-size:20px;
+  color:#fff;
+  text-shadow:0 2px 10px rgba(0,0,0,.95), 0 0 6px rgba(0,0,0,.95), 0 0 2px rgba(0,0,0,.95);
+  animation-name:np-marquee-rtl;
+  animation-timing-function:linear;
+  animation-iteration-count:infinite;
+}
+@keyframes np-marquee-rtl{
+  from{ left:100%; }
+  to{ left:-150%; }
+}
 
 /* ---------- QUEUE PANEL ---------- */
 #queue-panel{
@@ -440,7 +523,7 @@ main.queue-hidden #player-section{flex:1 1 100%;}
 }
 .panel-head h2{margin:0;font-size:19px;font-weight:600;}
 .panel-head .count{color:var(--text-dim);font-size:14px;}
-.panel-head-right{display:flex;align-items:center;gap:10px;}
+.panel-head-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
 .fair-toggle{
   background:var(--panel-2);border:1px solid var(--line);color:var(--text-dim);
   border-radius:999px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap;
@@ -484,6 +567,7 @@ main.queue-hidden #player-section{flex:1 1 100%;}
   padding:9px 10px;
 }
 .q-item.playing{border-color:var(--gold);background:#2E2245;}
+body.light-theme .q-item.playing{background:#FFF4DC;}
 .q-item .idx{
   width:22px;text-align:center;font-size:13px;color:var(--text-dim);flex-shrink:0;
 }
@@ -553,6 +637,15 @@ main.queue-hidden #player-section{flex:1 1 100%;}
 .result-card .meta .title{font-size:14px;font-weight:500;line-height:1.35;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .result-card .meta .channel{font-size:12px;color:var(--text-dim);margin-top:3px;}
+.source-badge{
+  display:inline-block;font-size:10px;font-weight:700;letter-spacing:.2px;
+  padding:2px 7px;border-radius:999px;margin-right:6px;vertical-align:middle;
+}
+.source-badge.yt{background:rgba(255,61,129,.18);color:var(--magenta);}
+.source-badge.local{background:rgba(255,200,87,.18);color:var(--gold);}
+.q-item .source-badge.local{font-size:0;padding:0;width:20px;height:20px;line-height:20px;
+  text-align:center;background:var(--panel);border:1px solid var(--line);margin-right:8px;}
+.q-item .source-badge.local::before{content:"💻";font-size:11px;}
 .result-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0;}
 .result-actions button{
   background:var(--magenta);border:none;color:#fff;border-radius:9px;
@@ -602,7 +695,7 @@ main.queue-hidden #player-section{flex:1 1 100%;}
 }
 .modal h2{margin:0 0 6px;font-size:22px;}
 .modal p.sub{color:var(--text-dim);margin:0 0 18px;font-size:14px;}
-.modal .close-row{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
+.modal .close-row{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;flex-wrap:wrap;}
 
 /* first-load disclaimer */
 .disclaimer-overlay{
@@ -690,6 +783,19 @@ main.queue-hidden #player-section{flex:1 1 100%;}
   color:var(--teal);
   margin-top:10px;
 }
+.connected-devices{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+.device-row{
+  display:flex;align-items:center;gap:8px;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:10px;
+  padding:7px 10px;font-size:13px;
+}
+.device-role{flex-shrink:0;}
+.device-name{flex:1;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.device-row button{
+  border:1px solid var(--line);background:transparent;color:var(--text-dim);
+  border-radius:8px;padding:5px 9px;cursor:pointer;font-size:11px;flex-shrink:0;
+}
+.device-row button:hover{background:var(--magenta);border-color:var(--magenta);color:#fff;}
 .qr-section{
   border-top:1px solid var(--line);
   padding-top:18px;margin-top:18px;
@@ -727,6 +833,48 @@ main.queue-hidden #player-section{flex:1 1 100%;}
 .pl-export-row{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
 .pl-export-row .icon-btn{flex:1;justify-content:center;font-size:13px;}
 
+/* ---------- settings modal ---------- */
+.settings-section{
+  padding:16px 0;
+  border-top:1px solid var(--line);
+}
+.settings-section:first-of-type{border-top:none;padding-top:0;}
+.settings-section h3{margin:0 0 10px;font-size:14px;color:var(--gold);}
+.settings-btn{width:100%;justify-content:flex-start;font-size:14px;}
+.settings-toggle-row{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+}
+.settings-row-title{font-size:14px;font-weight:500;}
+.settings-row-desc{font-size:12px;color:var(--text-dim);margin-top:3px;}
+.settings-toggle-row .icon-btn{flex-shrink:0;min-width:52px;justify-content:center;}
+.settings-toggle-row .icon-btn.accent{background:var(--gold);color:#1B1533;}
+
+/* ---------- PORTRAIT LAYOUT ---------- */
+@media (orientation: portrait){
+  main{flex-direction:column;}
+  #player-section{flex:0 0 42%;}
+  #queue-panel{flex:1;max-width:none;border-left:none;border-top:1px solid var(--line);}
+}
+@media (max-width: 640px){
+  header{padding:10px 14px;}
+  .brand h1{font-size:17px;}
+  .icon-btn{padding:8px 12px;font-size:13px;}
+  .icon-btn span.label{display:none;}
+}
+/* Mobile landscape (short viewport height): the header/toggle-bar/next-up-bar together can eat a
+   lot of a short screen's height, so trim them further here to leave more room for the video. */
+@media (orientation: landscape) and (max-height: 500px){
+  header{padding:6px 14px;}
+  .brand h1{font-size:15px;}
+  .brand-mark{width:28px;height:28px;font-size:15px;}
+  .icon-btn{padding:6px 10px;font-size:12px;gap:5px;}
+  #next-up-bar{padding:6px 16px;}
+  #now-playing-bar{height:36px;}
+  .np-marquee-text{font-size:16px;}
+}
+::-webkit-scrollbar{width:8px;}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px;}
+
 /* ---------- chords modal ---------- */
 .mode-tabs{display:flex;gap:8px;margin-bottom:14px;}
 .mode-tab{
@@ -759,22 +907,6 @@ main.queue-hidden #player-section{flex:1 1 100%;}
 .chord-library{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);}
 .chord-library h3{margin:0 0 10px;font-size:15px;}
 #btn-chords-save:disabled, #btn-chords-delete:disabled{opacity:.4;cursor:not-allowed;}
-
-/* ---------- PORTRAIT LAYOUT ---------- */
-@media (orientation: portrait){
-  main{flex-direction:column;}
-  #player-section{flex:0 0 42%;}
-  #queue-panel{flex:1;max-width:none;border-left:none;border-top:1px solid var(--line);}
-  #now-playing-bar .info h3{max-width:50vw;}
-}
-@media (max-width: 640px){
-  header{padding:10px 14px;}
-  .brand h1{font-size:17px;}
-  .icon-btn{padding:8px 12px;font-size:13px;}
-  .icon-btn span.label{display:none;}
-}
-::-webkit-scrollbar{width:8px;}
-::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px;}
 </style>
 </head>
 <body>
@@ -836,34 +968,48 @@ main.queue-hidden #player-section{flex:1 1 100%;}
       <h3>🎤 ระบบเล่น &amp; ค้นหาเพลง</h3>
       <ul>
         <li>ค้นหาและเล่นเพลงคาราโอเกะจาก YouTube ได้ทันที ไม่ต้องดาวน์โหลดหรือติดตั้งอะไรเพิ่ม</li>
-        <li>ค้นหาได้ทั้งจากจอหลักโดยตรง และจากมือถือผ่านรีโมท พร้อมภาพตัวอย่างย่อ (thumbnail) ของผลการค้นหา</li>
-        <li>มีชิป "เพลงแนะนำ" ให้แตะค้นหาได้ทันทีโดยไม่ต้องพิมพ์</li>
+        <li>ค้นหาได้ทั้งจากจอหลักโดยตรง และจากมือถือผ่านรีโมท พร้อมภาพตัวอย่างย่อ (thumbnail) ของผลการค้นหา — พิมพ์แล้วเห็นผลค้นหาจากไฟล์ในเครื่องแบบเรียลไทม์ทันที</li>
+        <li><strong>เล่นเพลงจากไฟล์ในเครื่องได้ด้วย</strong> นอกเหนือจาก YouTube — เลือกโฟลเดอร์เพลงหลักแล้วระบบค้นเพลงในโฟลเดอร์ย่อยให้อัตโนมัติ ผลค้นหามีป้ายบอกแหล่งที่มา (🌐 YouTube / 💻 อุปกรณ์) ให้แยกชัดเจนทั้งในผลค้นหาและในคิว</li>
+        <li>ปุ่ม "เพลงแนะนำ" ให้แตะค้นหาได้ทันทีโดยไม่ต้องพิมพ์ และปุ่ม "ยอดนิยม" ดึงเพลงฮิตล่าสุดจาก YouTube มาให้เลือกเพิ่มเข้าคิวได้เลย</li>
         <li>วางลิงก์ YouTube โดยตรงเพื่อเพิ่มเพลงได้ แม้ไม่ได้ตั้งค่า API Key</li>
       </ul>
       <h3>📋 การจัดการคิวเพลง</h3>
       <ul>
         <li>เพิ่ม ลบ แทรกเล่นถัดไป และจัดเรียงลำดับคิวได้ (ลากวางหรือปุ่ม ▲▼)</li>
-        <li>โหมด "คิวคนร้อง" แบ่งคิวเท่าเทียมอัตโนมัติ กันคนเดียวจองคิวรวด</li>
-        <li>บันทึก/โหลดเพลย์ลิสต์ และนำเข้า-ส่งออกเพลย์ลิสต์เป็นไฟล์ .json ได้</li>
-        <li>ดูประวัติเพลงที่เล่นไปแล้วทั้งหมด พร้อมเหตุผลที่เปลี่ยนเพลงและเวลาที่ผ่านมา</li>
+        <li>เล่นเพลงถัดไปในคิวอัตโนมัติ และลบเพลงที่เล่นจบออกจากคิวให้เองทันที</li>
+        <li>โหมด "คิวคนร้อง" แบ่งคิวเท่าเทียมอัตโนมัติ (คนละ 2 เพลงต่อรอบ) กันคนเดียวจองคิวรวด</li>
+        <li>บันทึก/โหลดเพลย์ลิสต์ และดูประวัติเพลงที่เล่นไปแล้วทั้งหมด พร้อมเหตุผลที่เปลี่ยนเพลงและเวลาที่ผ่านมา</li>
+        <li>สำรอง/กู้คืนข้อมูลทั้งหมด (เพลย์ลิสต์ + ประวัติ) เป็นไฟล์ .json เดียว</li>
+        <li>ปุ่ม "เริ่มงานใหม่" ล้างคิว/คะแนน/ประวัติในคลิกเดียว เตรียมพร้อมสำหรับงานครั้งถัดไป</li>
       </ul>
       <h3>📱 รีโมทมือถือผ่าน QR Code</h3>
       <ul>
-        <li>สแกน QR เพื่อควบคุมจากมือถือได้พร้อมกันหลายเครื่อง</li>
+        <li>สแกน QR เพื่อควบคุมจากมือถือได้พร้อมกันหลายเครื่อง เชื่อมต่อกลับมาอัตโนมัติเมื่อเปิดจอมือถือกลับมาโดยไม่ต้องสแกนใหม่</li>
         <li>แยกสิทธิ์ 3 ระดับ: จอหลัก, รีโมทแอดมิน (คุมได้ทุกอย่าง), รีโมทผู้ใช้ทั่วไป (เพิ่ม/ลบเพลง ปรับจังหวะ-เสียง)</li>
-        <li>ล็อกห้องด้วยรหัส PIN ได้ (ทางเลือก) กันคนแปลกหน้าเข้ามาคุมคิว</li>
+        <li>ล็อกห้องด้วยรหัส PIN ได้ (ทางเลือก) กันคนแปลกหน้าเข้ามาคุมคิว และจัดการ/ตัดการเชื่อมต่ออุปกรณ์ที่เชื่อมอยู่ได้จากจอหลัก</li>
+      </ul>
+      <h3>🖥️ ระบบจอที่ 2 (ทางเลือก)</h3>
+      <ul>
+        <li>เปิดใช้งานได้จากเมนูตั้งค่า — จอแสดงผลเสริมไร้สาย เชื่อมต่อแยกจากจอหลัก (ไม่กระทบจอหลักเลย)</li>
+        <li>แสดงวิดีโอเต็มจอ ชื่อเพลงที่กำลังเล่น เพลงถัดไป (กระพริบก่อนเพลงจบ 15 วินาที) และคะแนนร้องเพลง เหมาะสำหรับวางให้นักร้อง/ผู้ชมดูแยกจากจอควบคุม</li>
+        <li>เลือกได้ว่าจะให้เสียงออกจากจอหลักหรือจอที่ 2 สลับได้ตลอดเวลาระหว่างงาน</li>
       </ul>
       <h3>🎚️ ควบคุมการเล่น</h3>
       <ul>
         <li>ปรับจังหวะ (Tempo) และระดับเสียง/ปิดเสียงได้ทั้งจากจอหลักและรีโมท</li>
-        <li>ระบบให้คะแนนร้องเพลงแบบสุ่มหลังเพลงจบ พร้อมกระดานผู้นำ 5 อันดับ แสดงทั้งจอหลักและมือถือทุกเครื่อง</li>
+        <li>ระบบให้คะแนนร้องเพลงแบบสุ่มหลังเพลงจบ พร้อมกระดานผู้นำ 5 อันดับ แสดงทั้งจอหลัก มือถือทุกเครื่อง และจอที่ 2</li>
+        <li><strong>แสดงคอร์ดกีตาร์ของเพลงที่กำลังเล่นได้</strong> — พิมพ์คอร์ดเตรียมไว้เอง (แบบง่ายหรือแบบระบุเวลาละเอียด) ผูกกับเพลงนั้นไว้ถาวร เล่นซ้ำครั้งไหนก็ขึ้นให้อัตโนมัติ ใช้ได้ทั้งเพลงจาก YouTube และไฟล์ในเครื่อง</li>
       </ul>
       <h3>⚙️ ใช้งานสะดวก</h3>
       <ul>
         <li>ติดตั้งเป็นแอป (PWA) ได้ทั้งจอทีวี กล่องแอนดรอย และมือถือ</li>
-        <li>รองรับภาษาไทยเต็มรูปแบบ ทั้งแนวตั้งและแนวนอน</li>
+        <li>รองรับภาษาไทยเต็มรูปแบบ ทั้งแนวตั้งและแนวนอน สลับเลย์เอาต์ให้อัตโนมัติตามการหมุนจอ</li>
+        <li>โหมดเต็มจอของแอปเอง (ไม่ใช่แค่ของ YouTube) พร้อมปุ่มลอยซ่อน/แสดงเมนูแบบโปร่งใส ไม่บังจอ</li>
+        <li>สลับธีมมืด/สว่างได้ และเปิดโหมดประหยัดพลังสำหรับจอหลักที่สเปกไม่แรง</li>
+        <li>เมนู Header เลื่อนดูได้บนจอเล็ก/มือถือ กรณีมีปุ่มเยอะจนแสดงไม่หมด</li>
         <li>นำทางด้วยรีโมททีวี/กล่องแอนดรอยได้ ปุ่มโฟกัสด้วย D-pad รองรับปุ่มสื่อ (เล่น/หยุด/ข้าม)</li>
         <li>ซ่อน/แสดงแผงคิวเพลงบนจอหลักได้ เพื่อโฟกัสที่วิดีโอเต็มจอ</li>
+        <li>ปุ่ม "ออกจากระบบ" พร้อมป๊อปอัพยืนยันก่อนออก ตัดการเชื่อมต่อรีโมท/จอที่ 2 ทั้งหมดให้เรียบร้อยก่อนปิด</li>
       </ul>
     </div>
 
@@ -886,24 +1032,25 @@ main.queue-hidden #player-section{flex:1 1 100%;}
       <h1>Sri<span>Karaoke</span></h1>
     </div>
     <div class="header-actions">
-      <button class="icon-btn" id="btn-search"><span>🔎</span><span class="label">ค้นหาเพลง</span></button>
-      <button class="icon-btn" id="btn-history"><span>🕘</span><span class="label">ประวัติ</span></button>
-      <button class="icon-btn" id="btn-chords"><span>🎸</span><span class="label">คอร์ด</span></button>
-      <button class="icon-btn" id="btn-playlist"><span>📁</span><span class="label">เพลย์ลิสต์</span></button>
-      <button class="icon-btn accent" id="btn-qr"><span>📱</span><span class="label">รีโมทมือถือ</span></button>
-      <button class="icon-btn" id="btn-toggle-queue"><span>🗂️</span><span class="label">ซ่อนคิว</span></button>
-      <button class="icon-btn" id="btn-fullscreen"><span>⛶</span><span class="label">เต็มจอ</span></button>
+      <div class="header-actions-inner">
+        <button class="icon-btn" id="btn-search"><span>🔎</span><span class="label">ค้นหาเพลง</span></button>
+        <button class="icon-btn accent" id="btn-qr"><span>📱</span><span class="label">รีโมทมือถือ</span></button>
+        <button class="icon-btn" id="btn-chords"><span>🎸</span><span class="label">คอร์ด</span></button>
+        <button class="icon-btn" id="btn-toggle-queue"><span>🗂️</span><span class="label">ซ่อนคิว</span></button>
+        <button class="icon-btn" id="btn-settings"><span>⚙️</span><span class="label">ตั้งค่า</span></button>
+        <button class="icon-btn" id="btn-fullscreen"><span>⛶</span><span class="label">เต็มจอ</span></button>
+        <button class="icon-btn" id="btn-logout"><span>🚪</span><span class="label">ออกจากระบบ</span></button>
+      </div>
     </div>
   </header>
-  <div class="header-toggle-bar">
-    <button id="btn-toggle-header" title="ซ่อน/แสดงเมนู">▲</button>
-  </div>
+  <button class="header-toggle-btn" id="btn-toggle-header" title="ซ่อน/แสดงเมนู">▲</button>
   <div id="chord-bar" style="display:none;"></div>
 
   <main id="main-content">
     <section id="player-section">
       <div id="player-wrap">
         <div id="player"></div>
+        <video id="local-player" playsinline style="display:none;width:100%;height:100%;object-fit:contain;background:#000;"></video>
         <div id="idle-screen">
           <div class="spotlights">
             <div class="spotlight spotlight-1"></div>
@@ -927,16 +1074,14 @@ main.queue-hidden #player-section{flex:1 1 100%;}
             <button id="btn-start-audio">🎤 กดเริ่มระบบ (ครั้งเดียวก่อนเริ่มงาน)</button>
             <div class="display" id="idle-title">ยินดีต้อนรับสู่ <span>Sri Karaoke</span></div>
             <p id="idle-desc" style="display:none;">สแกน QR Code ด้านบนขวาด้วยมือถือของเพื่อน เพื่อค้นหาและเพิ่มเพลงเข้าคิวได้ทันที หรือกด "ค้นหาเพลง" ที่จอนี้ได้เลย</p>
+            <div class="display empty-queue-blink" id="idle-empty-queue-msg" style="display:none;">⚠️ ไม่มีเพลงในคิว...กรุณาเลือกเพลง</div>
           </div>
         </div>
       </div>
       <div id="next-up-bar" style="display:none;"></div>
       <div id="now-playing-bar" style="display:none;">
-        <img class="thumb" id="np-thumb" src="" alt="">
-        <div class="info">
-          <div class="label">กำลังเล่นเพลงนี้</div>
-          <h3 id="np-title">—</h3>
-          <div class="by" id="np-by"></div>
+        <div class="np-marquee-track">
+          <span class="np-marquee-text" id="np-marquee-text"></span>
         </div>
       </div>
     </section>
@@ -946,11 +1091,12 @@ main.queue-hidden #player-section{flex:1 1 100%;}
         <h2>คิวเพลง</h2>
         <div class="panel-head-right">
           <button class="fair-toggle" id="btn-fair-toggle" title="แบ่งคิวเท่าเทียมเมื่อมีหลายคนเพิ่มเพลง กันไม่ให้คนเดียวจองคิวรวด">👥 คิวคนร้อง: ปิด</button>
+          <button class="fair-toggle" id="btn-playlist" title="จัดการเพลย์ลิสต์">📁 เพลย์ลิสต์</button>
           <span class="count" id="queue-count">0 เพลง</span>
         </div>
       </div>
       <ul id="queue-list"></ul>
-      <div id="fair-hint" class="hint" style="display:none;padding:0 16px 8px;margin:0;">โหมดนี้จะจัดคิวใหม่อัตโนมัติเมื่อมีการเพิ่มเพลง ให้แต่ละคนได้ร้องสลับกันแทนที่จะเรียงตามลำดับที่เพิ่ม</div>
+      <div id="fair-hint" class="hint" style="display:none;padding:0 16px 8px;margin:0;">โหมดนี้จะจัดคิวใหม่อัตโนมัติเมื่อมีการเพิ่มเพลง ให้แต่ละคนได้ร้อง 2 เพลงต่อรอบแล้วสลับกันแทนที่จะเรียงตามลำดับที่เพิ่ม</div>
       <div class="transport">
         <button id="btn-prev" title="เพลงก่อนหน้า">⏮ ก่อนหน้า</button>
         <button id="btn-playpause" class="primary" title="เล่น/หยุด">▶ เล่น</button>
@@ -981,7 +1127,8 @@ main.queue-hidden #player-section{flex:1 1 100%;}
 <div class="modal-overlay hidden" id="qr-modal">
   <div class="modal">
     <h2>ควบคุมเพลงผ่านมือถือ</h2>
-    <div class="conn-status" id="conn-status" style="margin-bottom:14px;">รอการเชื่อมต่อ…</div>
+    <div class="conn-status" id="conn-status" style="margin-bottom:6px;">รอการเชื่อมต่อ…</div>
+    <div id="connected-devices-list" class="connected-devices"></div>
 
     <div class="qr-section">
       <h3 class="qr-section-title">👤 รีโมทผู้ใช้ทั่วไป</h3>
@@ -1016,65 +1163,14 @@ main.queue-hidden #player-section{flex:1 1 100%;}
   </div>
 </div>
 
-<!-- HISTORY MODAL -->
-<div class="modal-overlay hidden" id="history-modal">
+<!-- SCREEN 2 QR MODAL (separate from the remote QR modal on purpose — only shows the Screen 2 code) -->
+<div class="modal-overlay hidden" id="qr-screen2-modal">
   <div class="modal">
-    <h2>ประวัติเพลงที่เล่นไปแล้ว</h2>
-    <p class="sub">ดูย้อนหลังว่าเล่นเพลงอะไรไปบ้าง กด "+ คิว" เพื่อนำกลับมาเล่นซ้ำได้</p>
-    <div id="history-list"></div>
-    <div class="close-row">
-      <button class="icon-btn" id="btn-clear-history">ล้างประวัติ</button>
-      <button class="icon-btn" onclick="closeModal('history-modal')">ปิด</button>
-    </div>
-  </div>
-</div>
-
-<!-- SEARCH MODAL (single-screen mode: search & add/play directly) -->
-<div class="modal-overlay hidden" id="search-modal">
-  <div class="modal">
-    <h2>ค้นหาเพลง</h2>
-    <p class="sub">ใช้ได้แม้ไม่มีใครสแกน QR — ค้นหาแล้วกด "เล่นเลย" หรือ "+ คิว" ได้จากจอหลักโดยตรง</p>
-    <div class="chip-section" id="host-suggested-section" style="display:none;">
-      <span class="chip-label">เพลงแนะนำ (แตะเพื่อค้นหาทันที)</span>
-      <div class="chip-row" id="host-suggested-chips"></div>
-    </div>
-    <div class="search-row">
-      <input type="text" id="host-search-input" placeholder="ค้นหาเพลง หรือวางลิงก์ YouTube">
-      <button id="btn-host-search">ค้นหา</button>
-    </div>
-    <p class="hint" id="host-search-hint"></p>
-    <div id="host-search-results"></div>
-    <div class="field" style="margin-top:16px;">
-      <label>YouTube Data API Key (สำหรับค้นหาด้วยคำ)</label>
-      <div class="new-pl-form">
-        <input type="text" id="host-api-key-input" placeholder="วาง API Key ที่นี่">
-        <button id="btn-host-save-key">บันทึก</button>
-      </div>
-    </div>
-    <div class="close-row">
-      <button class="icon-btn" id="btn-toggle-suggested">🎵 เพลงแนะนำ</button>
-      <button class="icon-btn" onclick="closeModal('search-modal')">ปิด</button>
-    </div>
-  </div>
-</div>
-
-<!-- PLAYLIST MODAL -->
-<div class="modal-overlay hidden" id="playlist-modal">
-  <div class="modal">
-    <h2>เพลย์ลิสต์</h2>
-    <p class="sub">บันทึกคิวปัจจุบันเป็นเพลย์ลิสต์ หรือโหลดเพลย์ลิสต์เดิมกลับเข้าคิว</p>
-    <div class="new-pl-form">
-      <input type="text" id="new-pl-name" placeholder="ตั้งชื่อเพลย์ลิสต์ เช่น งานวันเกิด">
-      <button id="btn-save-pl">บันทึกคิวปัจจุบัน</button>
-    </div>
-    <div id="pl-list"></div>
-    <div class="pl-export-row">
-      <button class="icon-btn" id="btn-export-pl">⬇️ สำรองข้อมูลทั้งหมด (.json)</button>
-      <button class="icon-btn" id="btn-import-pl">⬆️ กู้คืนข้อมูล (.json)</button>
-      <input type="file" id="import-pl-file" accept="application/json" style="display:none;">
-    </div>
-    <p class="hint" style="margin-top:8px;">สำรอง/กู้คืนครอบคลุม <strong>เพลย์ลิสต์ + ประวัติเพลง + คอร์ดเพลง</strong> ในไฟล์เดียวกัน</p>
-    <div class="close-row"><button class="icon-btn" onclick="closeModal('playlist-modal')">ปิด</button></div>
+    <h2>🖥️ จอที่ 2</h2>
+    <p class="sub">สแกนจากอุปกรณ์/จอที่จะใช้เป็นจอแสดงผลเสริม — แสดงวิดีโอเต็มจอ ชื่อเพลง เพลงถัดไป และคะแนน ไม่มีปุ่มควบคุมใดๆ ปลอดภัยที่จะเปิดทิ้งไว้ได้ทั้งงาน</p>
+    <div id="qrcode-screen2"></div>
+    <div class="room-url" id="screen2-room-url-text"></div>
+    <div class="close-row"><button class="icon-btn" onclick="closeModal('qr-screen2-modal')">ปิด</button></div>
   </div>
 </div>
 
@@ -1121,6 +1217,146 @@ main.queue-hidden #player-section{flex:1 1 100%;}
     </div>
   </div>
 </div>
+
+<!-- HISTORY MODAL -->
+<div class="modal-overlay hidden" id="history-modal">
+  <div class="modal">
+    <h2>ประวัติเพลงที่เล่นไปแล้ว</h2>
+    <p class="sub">ดูย้อนหลังว่าเล่นเพลงอะไรไปบ้าง กด "+ คิว" เพื่อนำกลับมาเล่นซ้ำได้</p>
+    <div id="history-list"></div>
+    <div class="close-row">
+      <button class="icon-btn" id="btn-clear-history">ล้างประวัติ</button>
+      <button class="icon-btn" onclick="closeModal('history-modal')">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<!-- SEARCH MODAL (single-screen mode: search & add/play directly) -->
+<div class="modal-overlay hidden" id="search-modal">
+  <div class="modal">
+    <h2>ค้นหาเพลง</h2>
+    <p class="sub">ใช้ได้แม้ไม่มีใครสแกน QR — ค้นหาแล้วกด "เล่นเลย" หรือ "+ คิว" ได้จากจอหลักโดยตรง</p>
+    <div class="chip-section" id="host-suggested-section" style="display:none;">
+      <span class="chip-label">เพลงแนะนำ (แตะเพื่อค้นหาทันที)</span>
+      <div class="chip-row" id="host-suggested-chips"></div>
+    </div>
+    <div class="search-row">
+      <input type="text" id="host-search-input" placeholder="ค้นหาเพลง หรือวางลิงก์ YouTube">
+      <button id="btn-host-search">ค้นหา</button>
+    </div>
+    <p class="hint" id="host-search-hint"></p>
+    <div id="host-search-results"></div>
+    <p class="hint" style="margin-top:10px;">ตั้งค่า YouTube API Key ได้ที่เมนู "⚙️ ตั้งค่า"</p>
+    <div class="close-row">
+      <button class="icon-btn" id="btn-toggle-suggested">🎵 เพลงแนะนำ</button>
+      <button class="icon-btn" id="btn-popular">🔥 ยอดนิยม</button>
+      <button class="icon-btn" id="btn-open-history">🕘 ประวัติ</button>
+      <button class="icon-btn" onclick="closeModal('search-modal')">ปิด</button>
+    </div>
+  </div>
+</div>
+
+<!-- PLAYLIST MODAL -->
+<div class="modal-overlay hidden" id="playlist-modal">
+  <div class="modal">
+    <h2>เพลย์ลิสต์</h2>
+    <p class="sub">บันทึกคิวปัจจุบันเป็นเพลย์ลิสต์ หรือโหลดเพลย์ลิสต์เดิมกลับเข้าคิว</p>
+    <div class="new-pl-form">
+      <input type="text" id="new-pl-name" placeholder="ตั้งชื่อเพลย์ลิสต์ เช่น งานวันเกิด">
+      <button id="btn-save-pl">บันทึกคิวปัจจุบัน</button>
+    </div>
+    <div id="pl-list"></div>
+    <p class="hint" style="margin-top:10px;">สำรอง/กู้คืนเพลย์ลิสต์ได้ที่เมนู "⚙️ ตั้งค่า"</p>
+    <div class="close-row"><button class="icon-btn" onclick="closeModal('playlist-modal')">ปิด</button></div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-overlay hidden" id="settings-modal">
+  <div class="modal">
+    <h2>ตั้งค่า</h2>
+    <p class="sub">การตั้งค่าทั่วไปและจัดการข้อมูลของระบบ</p>
+
+    <div class="settings-section">
+      <h3>ธีม</h3>
+      <div class="settings-toggle-row">
+        <div>
+          <div class="settings-row-title">🌙 โหมดมืด/สว่าง</div>
+          <div class="settings-row-desc">สลับสีธีมของเมนูและหน้าต่างต่างๆ (จอวิดีโอยังคงมืดเหมือนเดิมเสมอ)</div>
+        </div>
+        <button class="icon-btn" id="btn-theme-toggle">มืด</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>ประสิทธิภาพ</h3>
+      <div class="settings-toggle-row">
+        <div>
+          <div class="settings-row-title">🔋 โหมดประหยัดพลัง</div>
+          <div class="settings-row-desc">ปิดอนิเมชัน screensaver สำหรับจอหลักที่สเปกไม่แรง</div>
+        </div>
+        <button class="icon-btn" id="btn-power-saving">ปิด</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>จอที่ 2</h3>
+      <div class="settings-toggle-row">
+        <div>
+          <div class="settings-row-title">🖥️ เปิดใช้งานจอที่ 2</div>
+          <div class="settings-row-desc">จอแสดงผลเสริม (วิดีโอเต็มจอ + ชื่อเพลง + คะแนน) เชื่อมต่อไร้สายแยกจากจอหลัก</div>
+        </div>
+        <button class="icon-btn" id="btn-screen2-toggle">ปิด</button>
+      </div>
+      <button class="icon-btn settings-btn" id="btn-screen2-qr" style="display:none;margin-top:10px;"><span>📺</span> แสดง QR จอที่ 2</button>
+      <p class="hint" style="margin-top:8px;">ไม่มีกล้อง/สแกน QR ไม่ได้? เปิดหน้าจอที่ 2 แล้วพิมพ์ "รหัสห้อง" กับ "PIN" ตัวเดียวกับที่โชว์อยู่ในส่วนรีโมทผู้ใช้ทั่วไปด้านบนได้เลย ไม่ต้องใช้กล้องเลย</p>
+      <div class="settings-toggle-row" id="audio-output-row" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
+        <div>
+          <div class="settings-row-title">🔊 เสียงออกที่</div>
+          <div class="settings-row-desc">ปุ่มปรับเสียงเดิม (จอหลัก+รีโมท) จะไปควบคุมจอที่เลือกไว้นี้แทน อีกจอจะถูกปิดเสียงอัตโนมัติกันเสียงซ้อน</div>
+        </div>
+        <button class="icon-btn" id="btn-audio-output-toggle">จอหลัก</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>เพลงจากอุปกรณ์</h3>
+      <p class="hint">เลือกโฟลเดอร์หลักที่เก็บไฟล์เพลง/วิดีโอคาราโอเกะในเครื่องนี้ ระบบจะค้นหาในโฟลเดอร์ย่อยทั้งหมดให้ด้วย เพลงจากอุปกรณ์จะขึ้นแสดงในผลค้นหาปนกับ YouTube โดยมีสัญลักษณ์ 💻 กำกับไว้</p>
+      <button class="icon-btn settings-btn" id="btn-pick-local-folder"><span>📂</span> เลือกโฟลเดอร์เพลง</button>
+      <input type="file" id="local-folder-input" webkitdirectory multiple style="display:none;">
+      <p class="hint" id="local-library-status" style="margin-top:8px;">ยังไม่ได้เลือกโฟลเดอร์เพลง</p>
+      <button class="icon-btn" id="btn-clear-local-folder" style="display:none;margin-top:6px;">ล้างโฟลเดอร์ที่เลือก</button>
+      <p class="hint" style="margin-top:10px;">⚠️ ต้องเลือกโฟลเดอร์ใหม่ทุกครั้งที่เปิด/รีเฟรชหน้านี้ (เบราว์เซอร์ไม่จำโฟลเดอร์ข้ามเซสชันด้วยเหตุผลด้านความปลอดภัย) เพลงจากอุปกรณ์เล่นได้เฉพาะบนเครื่องที่เลือกโฟลเดอร์ไว้เท่านั้น ใช้งานได้ดีที่สุดบน Chrome/Edge บนคอมพิวเตอร์ — กล่องแอนดรอย/สมาร์ททีวีบางรุ่นอาจไม่รองรับการเลือกโฟลเดอร์</p>
+    </div>
+
+    <div class="settings-section">
+      <h3>จัดการงาน</h3>
+      <button class="icon-btn settings-btn" id="btn-new-party"><span>🔄</span> เริ่มงานใหม่ (ล้างคิว/คะแนน/ประวัติ)</button>
+    </div>
+
+    <div class="settings-section">
+      <h3>สำรอง/กู้คืนข้อมูลทั้งหมด</h3>
+      <p class="hint">ครอบคลุม <strong>เพลย์ลิสต์ + ประวัติเพลง</strong> ในไฟล์เดียวกัน</p>
+      <div class="pl-export-row">
+        <button class="icon-btn" id="btn-export-pl">⬇️ สำรองข้อมูลทั้งหมด (.json)</button>
+        <button class="icon-btn" id="btn-import-pl">⬆️ กู้คืนข้อมูล (.json)</button>
+        <input type="file" id="import-pl-file" accept="application/json" style="display:none;">
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>YouTube Data API Key</h3>
+      <p class="hint">สำหรับค้นหาเพลงด้วยคำ (ไม่จำเป็นถ้าวางลิงก์ YouTube โดยตรงตอนเพิ่มเพลง)</p>
+      <div class="new-pl-form">
+        <input type="text" id="host-api-key-input" placeholder="วาง API Key ที่นี่">
+        <button id="btn-host-save-key">บันทึก</button>
+      </div>
+    </div>
+
+    <div class="close-row"><button class="icon-btn" onclick="closeModal('settings-modal')">ปิด</button></div>
+  </div>
+</div>
+
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://www.youtube.com/iframe_api"></script>
