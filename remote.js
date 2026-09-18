@@ -506,6 +506,14 @@ document.getElementById('nickname-input').addEventListener('change', (e) => {
 });
 
 document.getElementById('btn-connect').onclick = () => {
+  const nicknameVal = document.getElementById('nickname-input').value.trim();
+  if(!nicknameVal){
+    document.getElementById('connect-status').textContent = '⚠️ กรุณากรอกชื่อของคุณก่อนเชื่อมต่อ';
+    document.getElementById('nickname-input').focus();
+    return;
+  }
+  nickname = nicknameVal;
+  localStorage.setItem(STORAGE_NAME, nickname);
   let code = document.getElementById('room-input').value.trim().toUpperCase();
   if(!code) return;
   const roomId = code.startsWith('SRIKARAOKE-') ? code.toLowerCase() : 'srikaraoke-' + code;
@@ -529,7 +537,14 @@ document.getElementById('btn-search').onclick = doSearch;
     document.getElementById('room-input').value = room.replace('srikaraoke-', '').toUpperCase();
     document.getElementById('pin-input').value = pin;
     document.getElementById('admintoken-input').value = adminToken;
-    connectToRoom(room, pin, adminToken);
+    if(nickname){
+      // Returning user who already gave a name in this browser before — reconnect seamlessly.
+      connectToRoom(room, pin, adminToken);
+    } else {
+      // First time on this device/browser — still need a name before connecting, even via QR scan.
+      document.getElementById('connect-status').textContent = 'กรุณากรอกชื่อของคุณ แล้วกด "เชื่อมต่อ" เพื่อเข้าห้อง';
+      document.getElementById('nickname-input').focus();
+    }
   }
 })();
 

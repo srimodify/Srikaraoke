@@ -404,13 +404,13 @@ nav#tabbar button:focus-visible{outline:2px solid var(--gold);}
     <button class="go" id="btn-connect">เชื่อมต่อ</button>
   </div>
   <div class="nickname-row">
+    <input type="text" id="nickname-input" placeholder="ชื่อของคุณ" maxlength="20" required>
+  </div>
+  <div class="nickname-row">
     <input type="text" id="pin-input" placeholder="รหัส PIN (ถ้าห้องล็อกไว้)" maxlength="4" inputmode="numeric">
   </div>
   <div class="nickname-row">
     <input type="text" id="admintoken-input" placeholder="รหัสแอดมิน (ถ้ามี)" maxlength="8">
-  </div>
-  <div class="nickname-row">
-    <input type="text" id="nickname-input" placeholder="ชื่อของคุณ (ไม่บังคับ)" maxlength="20">
   </div>
   <div id="connect-status"></div>
 </div>
