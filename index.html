@@ -171,6 +171,24 @@ main.queue-hidden #player-section{flex:1 1 100%;}
   align-items:center;
   justify-content:center;
 }
+#queue-toggle-btn{
+  position:absolute;
+  top:50%;right:0;
+  transform:translate(50%,-50%);
+  z-index:10;
+  width:34px;height:34px;
+  border-radius:50%;
+  background:rgba(27,21,51,.85);
+  border:1px solid rgba(255,255,255,.18);
+  backdrop-filter:blur(3px);
+  color:var(--text-dim);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  font-size:13px;
+  transition:background .15s,color .15s;
+}
+#queue-toggle-btn:hover{background:rgba(27,21,51,.98);color:var(--text);}
+#queue-toggle-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 #player-wrap{
   width:100%;height:100%;
   position:relative;
@@ -1052,7 +1070,6 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
         <button class="icon-btn" id="btn-search"><span>🔎</span><span class="label">ค้นหาเพลง</span></button>
         <button class="icon-btn accent" id="btn-qr"><span>📱</span><span class="label">รีโมทมือถือ</span></button>
         <button class="icon-btn" id="btn-chords"><span>🎸</span><span class="label">คอร์ด</span></button>
-        <button class="icon-btn" id="btn-toggle-queue"><span>🗂️</span><span class="label">ซ่อนคิว</span></button>
         <button class="icon-btn" id="btn-settings"><span>⚙️</span><span class="label">ตั้งค่า</span></button>
         <button class="icon-btn" id="btn-fullscreen"><span>⛶</span><span class="label">เต็มจอ</span></button>
         <button class="icon-btn" id="btn-logout"><span>🚪</span><span class="label">ออกจากระบบ</span></button>
@@ -1093,6 +1110,7 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
           </div>
         </div>
       </div>
+      <button id="queue-toggle-btn" title="ซ่อน/แสดงคิวเพลง">▶</button>
       <div id="chord-bar" style="display:none;">
         <div class="chord-track" id="chord-track"></div>
       </div>

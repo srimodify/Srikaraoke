@@ -1697,11 +1697,12 @@ document.getElementById('btn-clear-local-folder').onclick = () => {
   clearLocalFolder();
   document.getElementById('local-folder-input').value = '';
 };
-document.getElementById('btn-toggle-queue').onclick = () => {
+document.getElementById('queue-toggle-btn').onclick = () => {
   const main = document.getElementById('main-content');
   const hidden = main.classList.toggle('queue-hidden');
-  const btn = document.getElementById('btn-toggle-queue');
-  btn.querySelector('.label').textContent = hidden ? 'แสดงคิว' : 'ซ่อนคิว';
+  const btn = document.getElementById('queue-toggle-btn');
+  btn.textContent = hidden ? '◀' : '▶';
+  btn.title = hidden ? 'แสดงคิวเพลง' : 'ซ่อนคิวเพลง';
 };
 document.getElementById('btn-new-party').onclick = startNewParty;
 
