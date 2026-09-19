@@ -168,6 +168,9 @@ function applyRoleUI(){
   const isAdmin = myRole === 'admin';
   document.getElementById('role-badge').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('admin-transport').style.display = isAdmin ? 'flex' : 'none';
+  // Defensive re-bind: guarantees the search-mode tabs are clickable right after the role is known,
+  // regardless of anything else that ran between initial page load and this point.
+  if(typeof wireSearchModeTabs === 'function') wireSearchModeTabs();
 }
 
 function handleHostMessage(msg){
@@ -529,15 +532,17 @@ document.getElementById('search-input').addEventListener('keydown', (e) => { if(
 document.getElementById('search-input').addEventListener('input', (e) => {
   liveLocalSearchRemote(e.target.value.trim());
 });
-document.querySelectorAll('#search-mode-tabs .mode-tab').forEach(tab => {
-  if(tab.dataset.mode === remoteSearchMode) tab.classList.add('active');
-  else tab.classList.remove('active');
-  tab.onclick = () => {
-    remoteSearchMode = tab.dataset.mode;
-    localStorage.setItem('sriKaraoke_remoteSearchMode', remoteSearchMode);
-    document.querySelectorAll('#search-mode-tabs .mode-tab').forEach(t => t.classList.toggle('active', t === tab));
-  };
-});
+function wireSearchModeTabs(){
+  document.querySelectorAll('#search-mode-tabs .mode-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.mode === remoteSearchMode);
+    tab.onclick = () => {
+      remoteSearchMode = tab.dataset.mode;
+      localStorage.setItem('sriKaraoke_remoteSearchMode', remoteSearchMode);
+      document.querySelectorAll('#search-mode-tabs .mode-tab').forEach(t => t.classList.toggle('active', t === tab));
+    };
+  });
+}
+wireSearchModeTabs();
 document.getElementById('btn-search').onclick = doSearch;
 
 /* Auto-connect from ?room=/&pin=/&admintoken= params (QR scan), or resume the last room after a refresh */

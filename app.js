@@ -37,6 +37,7 @@ const state = {
   fairQueueMode: sessionStorage.getItem('sriKaraoke_fairMode') === '1',
   screen2Enabled: sessionStorage.getItem('sriKaraoke_screen2Enabled') === '1',
   audioOutput: sessionStorage.getItem('sriKaraoke_audioOutput') || 'screen1',
+  scoringEnabled: sessionStorage.getItem('sriKaraoke_scoringEnabled') !== '0',
   localLibrary: [],
   chords: loadChords()
 };
@@ -113,6 +114,7 @@ function scoreTier(score){
 }
 
 function recordAndShowScore(song){
+  if(!state.scoringEnabled) return;
   const score = randomScore();
   const entry = { id: uid(), title: song.title, by: song.by || '', score, at: Date.now() };
   state.scores.unshift(entry);
@@ -239,6 +241,16 @@ function showToast(msg, isError){
 // First-load disclaimer — shown every time the page opens; must be dismissed before use.
 document.getElementById('btn-disclaimer-enter').onclick = () => {
   document.getElementById('disclaimer-modal').style.display = 'none';
+  openModal('role-select-modal');
+};
+document.getElementById('btn-role-host').onclick = () => {
+  closeModal('role-select-modal');
+};
+document.getElementById('btn-role-screen2').onclick = () => {
+  window.location.href = 'screen2.html';
+};
+document.getElementById('btn-role-remote').onclick = () => {
+  window.location.href = 'remote.html';
 };
 document.getElementById('btn-disclaimer-features').onclick = () => {
   const showingFeatures = document.getElementById('disclaimer-panel-features').style.display !== 'none';
@@ -1719,6 +1731,13 @@ document.getElementById('btn-power-saving').onclick = () => {
   sessionStorage.setItem('sriKaraoke_powerSaving', powerSaving ? '1' : '0');
   applyPowerSaving();
 };
+document.getElementById('btn-scoring-toggle').onclick = () => {
+  state.scoringEnabled = !state.scoringEnabled;
+  sessionStorage.setItem('sriKaraoke_scoringEnabled', state.scoringEnabled ? '1' : '0');
+  const btn = document.getElementById('btn-scoring-toggle');
+  btn.textContent = state.scoringEnabled ? 'เปิด' : 'ปิด';
+  btn.classList.toggle('accent', state.scoringEnabled);
+};
 
 /* ---------------- Dark / light theme (remembered per device, not just per session) ---------------- */
 let lightTheme = localStorage.getItem('sriKaraoke_theme') === 'light';
@@ -1867,6 +1886,12 @@ if(state.screen2Enabled){
   document.getElementById('btn-screen2-toggle').classList.add('accent');
   document.getElementById('audio-output-row').style.display = 'flex';
   document.getElementById('btn-audio-output-toggle').textContent = state.audioOutput === 'screen2' ? 'จอที่ 2' : 'จอหลัก';
+}
+// Same for the scoring-system toggle (button defaults to "เปิด"/accent in the HTML, so only
+// the "turned off" case needs to be reflected here)
+if(!state.scoringEnabled){
+  document.getElementById('btn-scoring-toggle').textContent = 'ปิด';
+  document.getElementById('btn-scoring-toggle').classList.remove('accent');
 }
 
 // The main screen's own tab rarely sleeps (it's usually a plugged-in TV/box), but this covers the

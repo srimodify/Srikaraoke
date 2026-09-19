@@ -941,6 +941,22 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
 .chord-library{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);}
 .chord-library h3{margin:0 0 10px;font-size:15px;}
 #btn-chords-save:disabled, #btn-chords-delete:disabled{opacity:.4;cursor:not-allowed;}
+
+/* ---------- role selector (shown after the disclaimer) ---------- */
+.role-select-list{display:flex;flex-direction:column;gap:10px;margin-top:18px;}
+.role-select-btn{
+  display:flex;align-items:center;gap:14px;
+  background:var(--panel-2);border:1px solid var(--line);
+  border-radius:14px;padding:14px 16px;
+  cursor:pointer;text-align:left;
+  transition:background .15s, border-color .15s, transform .1s;
+}
+.role-select-btn:hover{background:var(--line);border-color:var(--gold);}
+.role-select-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+.role-select-icon{font-size:28px;flex-shrink:0;}
+.role-select-text{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.role-select-title{font-family:'Kanit',sans-serif;font-weight:700;font-size:16px;color:var(--text);}
+.role-select-desc{font-size:12px;color:var(--text-dim);line-height:1.5;}
 </style>
 </head>
 <body>
@@ -1051,6 +1067,38 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
       <button class="icon-btn" id="btn-disclaimer-cancel">ยกเลิก</button>
       <button class="icon-btn info" id="btn-disclaimer-features">คุณสมบัติ</button>
       <button class="icon-btn accent" id="btn-disclaimer-enter">เข้าสู่ระบบ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ROLE SELECTOR MODAL — shown right after the disclaimer, lets this device act as the host,
+     Screen 2, or a remote, without needing to know which file to open manually. -->
+<div class="modal-overlay hidden" id="role-select-modal">
+  <div class="modal" style="max-width:420px;text-align:center;">
+    <h2>เลือกโหมดการแสดงผล</h2>
+    <p class="sub" style="text-align:center;">อุปกรณ์นี้จะใช้งานเป็นอะไร?</p>
+    <div class="role-select-list">
+      <button class="role-select-btn" id="btn-role-host">
+        <span class="role-select-icon">🖥️</span>
+        <span class="role-select-text">
+          <span class="role-select-title">จอหลัก</span>
+          <span class="role-select-desc">คุมทุกอย่าง — เล่นเพลง จัดคิว แจก QR (อุปกรณ์นี้)</span>
+        </span>
+      </button>
+      <button class="role-select-btn" id="btn-role-screen2">
+        <span class="role-select-icon">📺</span>
+        <span class="role-select-text">
+          <span class="role-select-title">จอที่ 2</span>
+          <span class="role-select-desc">จอแสดงผลเสริม วิดีโอเต็มจอ ไม่มีเมนูควบคุม</span>
+        </span>
+      </button>
+      <button class="role-select-btn" id="btn-role-remote">
+        <span class="role-select-icon">📱</span>
+        <span class="role-select-text">
+          <span class="role-select-title">รีโมท</span>
+          <span class="role-select-desc">ค้นหา/เพิ่มเพลงจากมือถือ ต้องมีรหัสห้องจากจอหลัก</span>
+        </span>
+      </button>
     </div>
   </div>
 </div>
@@ -1354,6 +1402,17 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
           <div class="settings-row-desc">ปิดอนิเมชัน screensaver สำหรับจอหลักที่สเปกไม่แรง</div>
         </div>
         <button class="icon-btn" id="btn-power-saving">ปิด</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>คะแนนร้องเพลง</h3>
+      <div class="settings-toggle-row">
+        <div>
+          <div class="settings-row-title">🏆 ระบบให้คะแนนร้องเพลง</div>
+          <div class="settings-row-desc">สุ่มคะแนน+ป๊อปอัพหลังเพลงจบ และกระดานผู้นำ ปิดได้ถ้าไม่ต้องการ</div>
+        </div>
+        <button class="icon-btn accent" id="btn-scoring-toggle">เปิด</button>
       </div>
     </div>
 
