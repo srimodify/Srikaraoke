@@ -387,6 +387,9 @@ function updateSearchHint(){
     : 'ยังไม่ได้ตั้งค่า API Key — วางลิงก์ YouTube โดยตรงในช่องด้านบนเพื่อเพิ่มเพลงได้เลย (ตั้งค่า API Key ในแท็บ "ตั้งค่า" เพื่อค้นหาด้วยคำ)';
 }
 
+// Same karaoke/normal search toggle as the host — persisted locally so it's remembered next visit.
+let remoteSearchMode = localStorage.getItem('sriKaraoke_remoteSearchMode') || 'karaoke';
+
 async function doSearch(){
   const q = document.getElementById('search-input').value.trim();
   if(!q) return;
@@ -419,7 +422,8 @@ async function doSearch(){
 
   resultsEl.innerHTML = '<p class="hint">กำลังค้นหา…</p>';
   try{
-    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=12&type=video&q=${encodeURIComponent(q + ' karaoke')}&key=${key}`;
+    const searchQuery = remoteSearchMode === 'karaoke' ? q + ' karaoke' : q;
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=12&type=video&q=${encodeURIComponent(searchQuery)}&key=${key}`;
     const res = await fetch(url);
     const data = await res.json();
     if(data.error){
@@ -524,6 +528,15 @@ document.getElementById('btn-connect').onclick = () => {
 document.getElementById('search-input').addEventListener('keydown', (e) => { if(e.key === 'Enter') doSearch(); });
 document.getElementById('search-input').addEventListener('input', (e) => {
   liveLocalSearchRemote(e.target.value.trim());
+});
+document.querySelectorAll('#search-mode-tabs .mode-tab').forEach(tab => {
+  if(tab.dataset.mode === remoteSearchMode) tab.classList.add('active');
+  else tab.classList.remove('active');
+  tab.onclick = () => {
+    remoteSearchMode = tab.dataset.mode;
+    localStorage.setItem('sriKaraoke_remoteSearchMode', remoteSearchMode);
+    document.querySelectorAll('#search-mode-tabs .mode-tab').forEach(t => t.classList.toggle('active', t === tab));
+  };
 });
 document.getElementById('btn-search').onclick = doSearch;
 

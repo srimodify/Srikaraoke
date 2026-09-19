@@ -1385,6 +1385,10 @@ function makeHostResultCard(v){
   return card;
 }
 
+// Whether YouTube searches are biased toward karaoke/instrumental versions ("karaoke" appended to
+// the query) or left as a plain search for the regular studio/vocal version of the song.
+let hostSearchMode = sessionStorage.getItem('sriKaraoke_searchMode') || 'karaoke';
+
 // Live, instant filtering of the LOCAL music library only as the user types — free (no API calls),
 // so it can safely update on every keystroke. Calling the YouTube API on every keystroke instead
 // would burn through the API quota very fast, so that still waits for an explicit "ค้นหา" click/Enter.
@@ -1477,7 +1481,8 @@ async function doHostSearch(){
 
   resultsEl.innerHTML = '<p class="hint">กำลังค้นหา…</p>';
   try{
-    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=12&type=video&q=${encodeURIComponent(q + ' karaoke')}&key=${key}`;
+    const searchQuery = hostSearchMode === 'karaoke' ? q + ' karaoke' : q;
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=12&type=video&q=${encodeURIComponent(searchQuery)}&key=${key}`;
     const res = await fetch(url);
     const data = await res.json();
     if(data.error){
@@ -1561,6 +1566,15 @@ document.getElementById('btn-search').onclick = () => {
   document.getElementById('host-search-results').innerHTML = '';
   openModal('search-modal');
 };
+document.querySelectorAll('#host-search-mode-tabs .mode-tab').forEach(tab => {
+  if(tab.dataset.mode === hostSearchMode) tab.classList.add('active');
+  else tab.classList.remove('active');
+  tab.onclick = () => {
+    hostSearchMode = tab.dataset.mode;
+    sessionStorage.setItem('sriKaraoke_searchMode', hostSearchMode);
+    document.querySelectorAll('#host-search-mode-tabs .mode-tab').forEach(t => t.classList.toggle('active', t === tab));
+  };
+});
 document.getElementById('btn-toggle-suggested').onclick = () => {
   const section = document.getElementById('host-suggested-section');
   const showing = section.style.display !== 'none';

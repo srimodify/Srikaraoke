@@ -203,6 +203,13 @@ main{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 90px;}
 
 /* search */
 .search-row{display:flex;gap:8px;margin-bottom:6px;}
+.mode-tabs{display:flex;gap:8px;margin-bottom:10px;}
+.mode-tab{
+  flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text-dim);
+  border-radius:10px;padding:9px 0;font-size:13px;font-family:inherit;cursor:pointer;
+}
+.mode-tab.active{background:var(--gold);color:#1B1533;border-color:var(--gold);font-weight:600;}
+.mode-tab:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 .search-row input{
   flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
   border-radius:12px;padding:12px 14px;font-size:14px;
@@ -468,6 +475,10 @@ nav#tabbar button:focus-visible{outline:2px solid var(--gold);}
 
   <main>
     <section class="tab-panel active" id="tab-search">
+      <div class="mode-tabs" id="search-mode-tabs">
+        <button type="button" class="mode-tab" data-mode="normal">🎤 เพลงทั่วไป</button>
+        <button type="button" class="mode-tab active" data-mode="karaoke">🎵 คาราโอเกะ</button>
+      </div>
       <div class="search-row">
         <input type="text" id="search-input" placeholder="ค้นหาเพลง หรือวางลิงก์ YouTube">
         <button id="btn-search">ค้นหา</button>
