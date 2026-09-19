@@ -119,6 +119,8 @@ header{
   flex-shrink:0;
 }
 header .top-row{display:flex;align-items:center;justify-content:space-between;}
+.brand-mini{display:flex;align-items:center;gap:8px;}
+.brand-mini-logo{width:26px;height:26px;border-radius:50%;object-fit:cover;flex-shrink:0;}
 header h1{margin:0;font-size:18px;font-weight:600;}
 header h1 span{color:var(--magenta);}
 .room-pill{font-size:11px;background:var(--panel-2);border:1px solid var(--line);
@@ -423,7 +425,10 @@ nav#tabbar button:focus-visible{outline:2px solid var(--gold);}
   <div id="reconnect-banner">🔄 การเชื่อมต่อขาดหาย กำลังเชื่อมต่อจอหลักใหม่…</div>
   <header>
     <div class="top-row">
-      <h1>Sri<span>Karaoke</span></h1>
+      <div class="brand-mini">
+        <img class="brand-mini-logo" src="icons/icon-192.png" alt="">
+        <h1>Sri<span>Karaoke</span></h1>
+      </div>
       <div style="display:flex;align-items:center;gap:6px;">
         <span class="role-badge" id="role-badge" style="display:none;">👑 แอดมิน</span>
         <span class="room-pill" id="room-pill">------</span>

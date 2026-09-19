@@ -385,14 +385,17 @@ function renderNowPlaying(){
     const desc = document.getElementById('idle-desc');
     const emptyMsg = document.getElementById('idle-empty-queue-msg');
     const idleContent = document.querySelector('#idle-screen .idle-content');
+    const startBtn = document.getElementById('btn-start-audio');
     if(audioUnlocked){
       title.style.display = 'none';
       desc.style.display = 'none';
       emptyMsg.style.display = 'block';
+      startBtn.style.display = 'none';
       idleContent.classList.add('no-box'); // just the blinking text over the disco lights, no card behind it
     } else {
       title.style.display = '';
       emptyMsg.style.display = 'none';
+      startBtn.style.display = '';
       idleContent.classList.remove('no-box');
     }
   }
@@ -816,7 +819,7 @@ function applyAudioOutput(){
 }
 
 /* ---------------- YouTube ---------------- */
-let audioUnlocked = false;
+let audioUnlocked = sessionStorage.getItem('sriKaraoke_audioUnlocked') === '1';
 
 function onYouTubeIframeAPIReady(){
   ytPlayer = new YT.Player('player', {
@@ -877,6 +880,7 @@ document.getElementById('btn-start-audio').onclick = () => {
     }catch(e){}
   }
   audioUnlocked = true;
+  sessionStorage.setItem('sriKaraoke_audioUnlocked', '1');
   document.getElementById('btn-start-audio').style.display = 'none';
   renderNowPlaying();
 };
