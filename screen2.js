@@ -165,6 +165,24 @@ function applyAudioFromHost(output, volume, muted){
 
 /* ---------------- YouTube player ---------------- */
 let lastLoadedVideoId = null;
+let loadingOverlayTimeout = null;
+function showLoadingOverlay(song){
+  const overlay = document.getElementById('loading-overlay');
+  if(!overlay) return;
+  document.getElementById('loading-blur-bg').style.backgroundImage = song.thumbnail ? `url("${song.thumbnail}")` : 'none';
+  document.getElementById('loading-title').textContent = song.title;
+  document.getElementById('loading-by').textContent = song.by ? 'เพิ่มโดย ' + song.by : '';
+  overlay.style.display = 'flex';
+  clearTimeout(loadingOverlayTimeout);
+  loadingOverlayTimeout = setTimeout(hideLoadingOverlay, 20000);
+}
+function hideLoadingOverlay(){
+  const overlay = document.getElementById('loading-overlay');
+  if(overlay) overlay.style.display = 'none';
+  clearTimeout(loadingOverlayTimeout);
+  loadingOverlayTimeout = null;
+}
+
 function onYouTubeIframeAPIReady(){
   ytPlayer = new YT.Player('d-player', {
     width: '100%', height: '100%',
@@ -176,6 +194,9 @@ function onYouTubeIframeAPIReady(){
         // player is muted on purpose unless the host has switched audio output to Screen 2.
         if(pendingAudioState) applyAudioFromHost(pendingAudioState.output, pendingAudioState.volume, pendingAudioState.muted);
         else { ytPlayer.mute(); ytPlayer.setVolume(0); }
+      },
+      onStateChange: (e) => {
+        if(e.data === YT.PlayerState.PLAYING) hideLoadingOverlay();
       }
     }
   });
@@ -188,12 +209,14 @@ function applyVideoState(currentId, currentTime){
     // Local files only exist on the host device's own file system — Screen 2 has no way to read or
     // play them, so it just clears its player and shows a placeholder (handled in renderDisplay).
     lastLoadedVideoId = null;
+    hideLoadingOverlay();
     if(ytReady && ytPlayer){ try{ ytPlayer.stopVideo(); }catch(e){} }
     return;
   }
   if(!ytReady || !ytPlayer) return;
   if(song.videoId !== lastLoadedVideoId){
     lastLoadedVideoId = song.videoId;
+    showLoadingOverlay(song);
     try{
       ytPlayer.loadVideoById(song.videoId);
       if(typeof currentTime === 'number' && currentTime > 1){

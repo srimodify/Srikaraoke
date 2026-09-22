@@ -194,8 +194,28 @@ function recordAndSetCurrent(prevSongObj, newId, reason){
 
 // Switches between the YouTube iframe and the local <video> element depending on the song's
 // source, and loads/plays the song on whichever one applies.
+let loadingOverlayTimeout = null;
+function showLoadingOverlay(song){
+  const overlay = document.getElementById('loading-overlay');
+  if(!overlay) return;
+  document.getElementById('loading-blur-bg').style.backgroundImage = song.thumbnail ? `url("${song.thumbnail}")` : 'none';
+  document.getElementById('loading-title').textContent = song.title;
+  document.getElementById('loading-by').textContent = song.by ? 'เพิ่มโดย ' + song.by : '';
+  overlay.style.display = 'flex';
+  clearTimeout(loadingOverlayTimeout);
+  // Safety net: if the "playing" event never fires for some reason, don't leave this stuck forever.
+  loadingOverlayTimeout = setTimeout(hideLoadingOverlay, 20000);
+}
+function hideLoadingOverlay(){
+  const overlay = document.getElementById('loading-overlay');
+  if(overlay) overlay.style.display = 'none';
+  clearTimeout(loadingOverlayTimeout);
+  loadingOverlayTimeout = null;
+}
+
 function loadSongIntoPlayer(song){
   const ytWrap = document.getElementById('player');
+  showLoadingOverlay(song);
   if(song.source === 'local'){
     const file = localFiles.get(song.localFileId);
     if(!file){
@@ -784,6 +804,7 @@ function stopPlayer(){
   const ytWrap = document.getElementById('player');
   if(ytWrap) ytWrap.style.display = '';
   state.isPlaying = false;
+  hideLoadingOverlay();
 }
 
 /* ---------------- Tempo (speed) — allowed from host AND remote ---------------- */
@@ -845,7 +866,7 @@ function onYouTubeIframeAPIReady(){
           if(finishedSong) recordAndShowScore(finishedSong);
           skip('เล่นจบ');
         }
-        if(e.data === YT.PlayerState.PLAYING){ state.isPlaying = true; renderNowPlaying(); }
+        if(e.data === YT.PlayerState.PLAYING){ state.isPlaying = true; hideLoadingOverlay(); renderNowPlaying(); }
         if(e.data === YT.PlayerState.PAUSED){ state.isPlaying = false; renderNowPlaying(); }
       },
       onError: (e) => {
@@ -876,7 +897,7 @@ if(localPlayer){
       skip('เล่นไม่ได้');
     }
   });
-  localPlayer.addEventListener('playing', () => { state.isPlaying = true; renderNowPlaying(); });
+  localPlayer.addEventListener('playing', () => { state.isPlaying = true; hideLoadingOverlay(); renderNowPlaying(); });
   localPlayer.addEventListener('pause', () => { state.isPlaying = false; renderNowPlaying(); });
 }
 
