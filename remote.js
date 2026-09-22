@@ -554,6 +554,9 @@ function wireSearchModeTabs(){
       remoteSearchMode = tab.dataset.mode;
       localStorage.setItem('sriKaraoke_remoteSearchMode', remoteSearchMode);
       document.querySelectorAll('#search-mode-tabs .mode-tab').forEach(t => t.classList.toggle('active', t === tab));
+      // Re-run the search immediately if there's already a query showing — otherwise switching modes
+      // silently does nothing until the next explicit search, which looks like the toggle has no effect.
+      if(document.getElementById('search-input').value.trim()) doSearch();
     };
   });
 }

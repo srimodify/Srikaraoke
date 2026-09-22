@@ -1624,6 +1624,9 @@ document.querySelectorAll('#host-search-mode-tabs .mode-tab').forEach(tab => {
     hostSearchMode = tab.dataset.mode;
     sessionStorage.setItem('sriKaraoke_searchMode', hostSearchMode);
     document.querySelectorAll('#host-search-mode-tabs .mode-tab').forEach(t => t.classList.toggle('active', t === tab));
+    // Re-run the search immediately if there's already a query showing — otherwise switching modes
+    // silently does nothing until the next explicit search, which looks like the toggle has no effect.
+    if(document.getElementById('host-search-input').value.trim()) doHostSearch();
   };
 });
 document.getElementById('btn-toggle-suggested').onclick = () => {
