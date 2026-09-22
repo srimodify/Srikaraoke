@@ -743,7 +743,9 @@ function moveDown(id){
 // "คิวคนร้อง" fairness: re-sorts the not-yet-played tail of the queue into round-robin
 // order by singer, so one person adding many songs doesn't monopolize consecutive turns.
 // Never touches the currently playing song or anything before it.
-const FAIR_QUEUE_SONGS_PER_TURN = 2; // how many songs each singer gets before rotating to the next
+// Configurable via the "คิวคนร้อง" popup — how many songs each singer gets before rotating to the
+// next; default is 1 (round-robin every song) unless the operator sets otherwise.
+let FAIR_QUEUE_SONGS_PER_TURN = parseInt(sessionStorage.getItem('sriKaraoke_fairSongsPerTurn'), 10) || 1;
 function fairReorderQueue(){
   const idx = currentIndex();
   const headPortion = idx > -1 ? state.queue.slice(0, idx + 1) : [];
@@ -1702,18 +1704,43 @@ document.getElementById('btn-regen-admintoken').onclick = () => {
   if(myRoomId) renderRoomQR();
   showToast('สร้างรหัสแอดมินใหม่แล้ว — QR แอดมินเดิมจะใช้ต่อไม่ได้ (คนที่เชื่อมต่ออยู่แล้วไม่ถูกตัดสิทธิ์)');
 };
+function updateFairHintText(){
+  document.getElementById('fair-hint').textContent =
+    `โหมดนี้จะจัดคิวใหม่อัตโนมัติเมื่อมีการเพิ่มเพลง ให้แต่ละคนได้ร้อง ${FAIR_QUEUE_SONGS_PER_TURN} เพลงต่อรอบแล้วสลับกันแทนที่จะเรียงตามลำดับที่เพิ่ม`;
+}
 document.getElementById('btn-fair-toggle').onclick = () => {
-  state.fairQueueMode = !state.fairQueueMode;
-  sessionStorage.setItem('sriKaraoke_fairMode', state.fairQueueMode ? '1' : '0');
-  const btn = document.getElementById('btn-fair-toggle');
-  btn.textContent = state.fairQueueMode ? '👥 คิวคนร้อง: เปิด' : '👥 คิวคนร้อง: ปิด';
-  btn.classList.toggle('on', state.fairQueueMode);
-  document.getElementById('fair-hint').style.display = state.fairQueueMode ? 'block' : 'none';
-  if(state.fairQueueMode){
-    fairReorderQueue();
-    showToast('เปิดคิวคนร้อง — จัดคิวใหม่ให้สลับกันร้องอัตโนมัติ');
+  document.getElementById('fair-queue-count-input').value = FAIR_QUEUE_SONGS_PER_TURN;
+  openModal('fair-queue-modal');
+};
+document.getElementById('btn-fair-queue-apply').onclick = () => {
+  const n = parseInt(document.getElementById('fair-queue-count-input').value, 10);
+  if(!n || n < 1){
+    showToast('กรุณาใส่จำนวนเพลง/คน อย่างน้อย 1 เพลง', true);
+    return;
   }
+  FAIR_QUEUE_SONGS_PER_TURN = n;
+  sessionStorage.setItem('sriKaraoke_fairSongsPerTurn', String(n));
+  state.fairQueueMode = true;
+  sessionStorage.setItem('sriKaraoke_fairMode', '1');
+  const btn = document.getElementById('btn-fair-toggle');
+  btn.textContent = '👥 คิวคนร้อง: เปิด';
+  btn.classList.add('on');
+  updateFairHintText();
+  document.getElementById('fair-hint').style.display = 'block';
+  fairReorderQueue();
   renderQueue();
+  closeModal('fair-queue-modal');
+  showToast(`เปิดคิวคนร้อง — ${n} เพลง/คน จัดคิวใหม่ให้สลับกันร้องอัตโนมัติ`);
+};
+document.getElementById('btn-fair-queue-disable').onclick = () => {
+  state.fairQueueMode = false;
+  sessionStorage.setItem('sriKaraoke_fairMode', '0');
+  const btn = document.getElementById('btn-fair-toggle');
+  btn.textContent = '👥 คิวคนร้อง: ปิด';
+  btn.classList.remove('on');
+  document.getElementById('fair-hint').style.display = 'none';
+  renderQueue();
+  closeModal('fair-queue-modal');
 };
 document.getElementById('btn-screen2-toggle').onclick = () => {
   state.screen2Enabled = !state.screen2Enabled;
@@ -1779,6 +1806,20 @@ document.getElementById('btn-scoring-toggle').onclick = () => {
   const btn = document.getElementById('btn-scoring-toggle');
   btn.textContent = state.scoringEnabled ? 'เปิด' : 'ปิด';
   btn.classList.toggle('accent', state.scoringEnabled);
+};
+let chordsButtonVisible = sessionStorage.getItem('sriKaraoke_chordsButtonVisible') === '1';
+document.getElementById('btn-chords').style.display = chordsButtonVisible ? '' : 'none';
+if(chordsButtonVisible){
+  document.getElementById('btn-chords-button-toggle').textContent = 'เปิด';
+  document.getElementById('btn-chords-button-toggle').classList.add('accent');
+}
+document.getElementById('btn-chords-button-toggle').onclick = () => {
+  chordsButtonVisible = !chordsButtonVisible;
+  sessionStorage.setItem('sriKaraoke_chordsButtonVisible', chordsButtonVisible ? '1' : '0');
+  document.getElementById('btn-chords').style.display = chordsButtonVisible ? '' : 'none';
+  const btn = document.getElementById('btn-chords-button-toggle');
+  btn.textContent = chordsButtonVisible ? 'เปิด' : 'ปิด';
+  btn.classList.toggle('accent', chordsButtonVisible);
 };
 
 /* ---------------- Dark / light theme (remembered per device, not just per session) ---------------- */
@@ -1920,6 +1961,7 @@ if(state.fairQueueMode){
   const btn = document.getElementById('btn-fair-toggle');
   btn.textContent = '👥 คิวคนร้อง: เปิด';
   btn.classList.add('on');
+  updateFairHintText();
   document.getElementById('fair-hint').style.display = 'block';
 }
 // Same for the Second Screen toggle

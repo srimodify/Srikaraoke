@@ -1206,7 +1206,7 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
       <div class="header-actions-inner">
         <button class="icon-btn" id="btn-search"><span>🔎</span><span class="label">ค้นหาเพลง</span></button>
         <button class="icon-btn accent" id="btn-qr"><span>📱</span><span class="label">รีโมทมือถือ</span></button>
-        <button class="icon-btn" id="btn-chords"><span>🎸</span><span class="label">คอร์ด</span></button>
+        <button class="icon-btn" id="btn-chords" style="display:none;"><span>🎸</span><span class="label">คอร์ด</span></button>
         <button class="icon-btn" id="btn-settings"><span>⚙️</span><span class="label">ตั้งค่า</span></button>
         <button class="icon-btn" id="btn-fullscreen"><span>⛶</span><span class="label">เต็มจอ</span></button>
         <button class="icon-btn" id="btn-logout"><span>🚪</span><span class="label">ออกจากระบบ</span></button>
@@ -1279,7 +1279,7 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
         </div>
       </div>
       <ul id="queue-list"></ul>
-      <div id="fair-hint" class="hint" style="display:none;padding:0 16px 8px;margin:0;">โหมดนี้จะจัดคิวใหม่อัตโนมัติเมื่อมีการเพิ่มเพลง ให้แต่ละคนได้ร้อง 2 เพลงต่อรอบแล้วสลับกันแทนที่จะเรียงตามลำดับที่เพิ่ม</div>
+      <div id="fair-hint" class="hint" style="display:none;padding:0 16px 8px;margin:0;"></div>
       <div class="transport">
         <button id="btn-prev" title="เพลงก่อนหน้า">⏮ ก่อนหน้า</button>
         <button id="btn-playpause" class="primary" title="เล่น/หยุด">▶ เล่น</button>
@@ -1464,6 +1464,24 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
   </div>
 </div>
 
+<!-- FAIR QUEUE (คิวคนร้อง) CONFIG MODAL -->
+<div class="modal-overlay hidden" id="fair-queue-modal">
+  <div class="modal" style="max-width:380px;text-align:center;">
+    <h2>👥 คิวคนร้อง</h2>
+    <p class="sub" style="text-align:center;">แบ่งคิวเท่าเทียมเมื่อมีหลายคนเพิ่มเพลง กันไม่ให้คนเดียวจองคิวรวด — ให้แต่ละคนได้ร้องกี่เพลงต่อรอบ?</p>
+    <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin:18px 0;">
+      <label for="fair-queue-count-input" style="font-size:14px;color:var(--text-dim);">เพลง/คน</label>
+      <input type="number" id="fair-queue-count-input" min="1" max="20" value="1"
+        style="width:70px;background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:8px;font-size:16px;text-align:center;font-family:'Kanit',sans-serif;">
+    </div>
+    <div class="close-row" style="justify-content:center;flex-wrap:wrap;">
+      <button class="icon-btn" id="btn-fair-queue-disable">ปิดใช้งาน</button>
+      <button class="icon-btn" onclick="closeModal('fair-queue-modal')">ยกเลิก</button>
+      <button class="icon-btn accent" id="btn-fair-queue-apply">เปิดใช้งาน</button>
+    </div>
+  </div>
+</div>
+
 <!-- LOGOUT CONFIRM MODAL -->
 <div class="modal-overlay hidden" id="logout-confirm-modal">
   <div class="modal" style="max-width:360px;text-align:center;">
@@ -1512,6 +1530,17 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
           <div class="settings-row-desc">สุ่มคะแนน+ป๊อปอัพหลังเพลงจบ และกระดานผู้นำ ปิดได้ถ้าไม่ต้องการ</div>
         </div>
         <button class="icon-btn accent" id="btn-scoring-toggle">เปิด</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>เมนู Header</h3>
+      <div class="settings-toggle-row">
+        <div>
+          <div class="settings-row-title">🎸 ปุ่มคอร์ด</div>
+          <div class="settings-row-desc">ซ่อน/แสดงปุ่ม "คอร์ด" ที่แถบเมนูด้านบน</div>
+        </div>
+        <button class="icon-btn" id="btn-chords-button-toggle">ปิด</button>
       </div>
     </div>
 
