@@ -194,6 +194,86 @@ function recordAndSetCurrent(prevSongObj, newId, reason){
 
 // Switches between the YouTube iframe and the local <video> element depending on the song's
 // source, and loads/plays the song on whichever one applies.
+/* ---------------- Ambient "please wait" music during the loading overlay ----------------
+   Entirely synthesized in real time via the Web Audio API — no audio file, no copyrighted material
+   involved at all. Plays softly instead of leaving dead silence (or letting ad audio through) while
+   a new video is loading. */
+let ambientCtx = null;
+let ambientNodes = null;
+let ambientChordTimer = null;
+function ensureAmbientContext(){
+  if(!ambientCtx){
+    try{ ambientCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return null; }
+  }
+  if(ambientCtx.state === 'suspended'){ ambientCtx.resume().catch(() => {}); }
+  return ambientCtx;
+}
+function startLoadingAmbience(){
+  const ctx = ensureAmbientContext();
+  if(!ctx || ambientNodes) return;
+  const master = ctx.createGain();
+  master.gain.value = 0;
+  master.connect(ctx.destination);
+  master.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 1.2);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 1100;
+  filter.connect(master);
+
+  const chordSets = [
+    [261.63, 329.63, 392.00], // C major — soft pad
+    [220.00, 277.18, 329.63]  // A minor-ish — gentle alternation
+  ];
+  let oscillators = [];
+  let chordIndex = 0;
+  function playChord(freqs){
+    const oldOscs = oscillators;
+    oscillators = [];
+    oldOscs.forEach(o => {
+      try{
+        o.gain.gain.cancelScheduledValues(ctx.currentTime);
+        o.gain.gain.setValueAtTime(o.gain.gain.value, ctx.currentTime);
+        o.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.5);
+        o.osc.stop(ctx.currentTime + 1.6);
+      }catch(e){}
+    });
+    freqs.forEach(freq => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.gain.linearRampToValueAtTime(1 / freqs.length, ctx.currentTime + 1.5);
+      osc.connect(g);
+      g.connect(filter);
+      osc.start();
+      oscillators.push({ osc, gain: g });
+    });
+  }
+  playChord(chordSets[chordIndex]);
+  ambientChordTimer = setInterval(() => {
+    chordIndex = (chordIndex + 1) % chordSets.length;
+    playChord(chordSets[chordIndex]);
+  }, 4000);
+  ambientNodes = { master, get oscillators(){ return oscillators; } };
+}
+function stopLoadingAmbience(){
+  if(!ambientNodes || !ambientCtx) return;
+  const ctx = ambientCtx;
+  const { master, oscillators } = ambientNodes;
+  try{
+    master.gain.cancelScheduledValues(ctx.currentTime);
+    master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
+    master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.6);
+  }catch(e){}
+  clearInterval(ambientChordTimer);
+  ambientChordTimer = null;
+  const oscsToStop = oscillators;
+  setTimeout(() => { oscsToStop.forEach(o => { try{ o.osc.stop(); }catch(e){} }); }, 700);
+  ambientNodes = null;
+}
+
+let isLoadingSong = false;
 let loadingOverlayTimeout = null;
 function showLoadingOverlay(song){
   const overlay = document.getElementById('loading-overlay');
@@ -202,6 +282,9 @@ function showLoadingOverlay(song){
   document.getElementById('loading-title').textContent = song.title;
   document.getElementById('loading-by').textContent = song.by ? 'เพิ่มโดย ' + song.by : '';
   overlay.style.display = 'flex';
+  isLoadingSong = true;
+  applyAudioOutput(); // mutes the real player so any pre-roll ad audio stays silent
+  if(state.audioOutput === 'screen1') startLoadingAmbience(); // this device is the audio source right now
   clearTimeout(loadingOverlayTimeout);
   // Safety net: if the "playing" event never fires for some reason, don't leave this stuck forever.
   loadingOverlayTimeout = setTimeout(hideLoadingOverlay, 20000);
@@ -209,6 +292,9 @@ function showLoadingOverlay(song){
 function hideLoadingOverlay(){
   const overlay = document.getElementById('loading-overlay');
   if(overlay) overlay.style.display = 'none';
+  isLoadingSong = false;
+  applyAudioOutput(); // restores the real player's normal volume/mute now that actual playback has started
+  stopLoadingAmbience();
   clearTimeout(loadingOverlayTimeout);
   loadingOverlayTimeout = null;
 }
@@ -243,6 +329,8 @@ function loadSongIntoPlayer(song){
       state.isPlaying = true;
     }
   }
+  applyAudioOutput(); // final step: makes sure the "muted while loading" state actually takes effect,
+                       // overriding whatever volume/mute the branch above just set
 }
 
 function closeModal(id){ document.getElementById(id).classList.add('hidden'); }
@@ -837,7 +925,8 @@ function toggleMute(){
 // When Screen 2 is the source, the host's own player is force-muted and every connection (Screen 2,
 // phone remotes) gets an AUDIO_OUTPUT message — phone remotes have no player and simply ignore it.
 function applyAudioOutput(){
-  if(state.audioOutput === 'screen2'){
+  const forceMuteForLoading = isLoadingSong && state.audioOutput === 'screen1';
+  if(state.audioOutput === 'screen2' || forceMuteForLoading){
     if(ytReady && ytPlayer){ try{ ytPlayer.mute(); ytPlayer.setVolume(0); }catch(e){} }
     if(localPlayer){ localPlayer.muted = true; localPlayer.volume = 0; }
   } else {
@@ -912,6 +1001,7 @@ document.getElementById('btn-start-audio').onclick = () => {
       setTimeout(() => { try{ ytPlayer.pauseVideo(); ytPlayer.unMute(); }catch(e){} }, 300);
     }catch(e){}
   }
+  ensureAmbientContext(); // unlock Web Audio here too, on the same guaranteed user gesture
   audioUnlocked = true;
   sessionStorage.setItem('sriKaraoke_audioUnlocked', '1');
   document.getElementById('btn-start-audio').style.display = 'none';

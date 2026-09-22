@@ -150,17 +150,99 @@ function handleHostMessage(msg){
 // the host switches "เสียงออกที่จอไหน" to Screen 2, it broadcasts an AUDIO_OUTPUT message telling
 // this page to become the audio source instead — volume/mute here then mirror the host's controls.
 let pendingAudioState = null;
+let currentAudioOutput = 'screen1', currentAudioVolume = 100, currentAudioMuted = false;
+let isLoadingSong = false;
 function applyAudioFromHost(output, volume, muted){
+  currentAudioOutput = output;
+  currentAudioVolume = typeof volume === 'number' ? volume : 100;
+  currentAudioMuted = !!muted;
   if(!ytReady || !ytPlayer){ pendingAudioState = { output, volume, muted }; return; }
   try{
-    if(output === 'screen2'){
-      ytPlayer.setVolume(muted ? 0 : (typeof volume === 'number' ? volume : 100));
-      if(muted) ytPlayer.mute(); else ytPlayer.unMute();
+    if(output === 'screen2' && !isLoadingSong){
+      ytPlayer.setVolume(currentAudioMuted ? 0 : currentAudioVolume);
+      if(currentAudioMuted) ytPlayer.mute(); else ytPlayer.unMute();
     } else {
       ytPlayer.mute();
       ytPlayer.setVolume(0);
     }
   }catch(e){}
+}
+
+/* ---------------- Ambient "please wait" music during the loading overlay ----------------
+   Entirely synthesized in real time via the Web Audio API — no audio file, no copyrighted material
+   involved at all. Only actually audible on Screen 2 when it's the current audio-output target. */
+let ambientCtx = null;
+let ambientNodes = null;
+let ambientChordTimer = null;
+function ensureAmbientContext(){
+  if(!ambientCtx){
+    try{ ambientCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return null; }
+  }
+  if(ambientCtx.state === 'suspended'){ ambientCtx.resume().catch(() => {}); }
+  return ambientCtx;
+}
+function startLoadingAmbience(){
+  const ctx = ensureAmbientContext();
+  if(!ctx || ambientNodes) return;
+  const master = ctx.createGain();
+  master.gain.value = 0;
+  master.connect(ctx.destination);
+  master.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 1.2);
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 1100;
+  filter.connect(master);
+  const chordSets = [
+    [261.63, 329.63, 392.00],
+    [220.00, 277.18, 329.63]
+  ];
+  let oscillators = [];
+  let chordIndex = 0;
+  function playChord(freqs){
+    const oldOscs = oscillators;
+    oscillators = [];
+    oldOscs.forEach(o => {
+      try{
+        o.gain.gain.cancelScheduledValues(ctx.currentTime);
+        o.gain.gain.setValueAtTime(o.gain.gain.value, ctx.currentTime);
+        o.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.5);
+        o.osc.stop(ctx.currentTime + 1.6);
+      }catch(e){}
+    });
+    freqs.forEach(freq => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.gain.linearRampToValueAtTime(1 / freqs.length, ctx.currentTime + 1.5);
+      osc.connect(g);
+      g.connect(filter);
+      osc.start();
+      oscillators.push({ osc, gain: g });
+    });
+  }
+  playChord(chordSets[chordIndex]);
+  ambientChordTimer = setInterval(() => {
+    chordIndex = (chordIndex + 1) % chordSets.length;
+    playChord(chordSets[chordIndex]);
+  }, 4000);
+  ambientNodes = { master, get oscillators(){ return oscillators; } };
+}
+function stopLoadingAmbience(){
+  if(!ambientNodes || !ambientCtx) return;
+  const ctx = ambientCtx;
+  const { master, oscillators } = ambientNodes;
+  try{
+    master.gain.cancelScheduledValues(ctx.currentTime);
+    master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
+    master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.6);
+  }catch(e){}
+  clearInterval(ambientChordTimer);
+  ambientChordTimer = null;
+  const oscsToStop = oscillators;
+  setTimeout(() => { oscsToStop.forEach(o => { try{ o.osc.stop(); }catch(e){} }); }, 700);
+  ambientNodes = null;
 }
 
 /* ---------------- YouTube player ---------------- */
@@ -173,12 +255,18 @@ function showLoadingOverlay(song){
   document.getElementById('loading-title').textContent = song.title;
   document.getElementById('loading-by').textContent = song.by ? 'เพิ่มโดย ' + song.by : '';
   overlay.style.display = 'flex';
+  isLoadingSong = true;
+  applyAudioFromHost(currentAudioOutput, currentAudioVolume, currentAudioMuted); // mute the real player while "loading"
+  if(currentAudioOutput === 'screen2') startLoadingAmbience(); // this screen is the audio source right now
   clearTimeout(loadingOverlayTimeout);
   loadingOverlayTimeout = setTimeout(hideLoadingOverlay, 20000);
 }
 function hideLoadingOverlay(){
   const overlay = document.getElementById('loading-overlay');
   if(overlay) overlay.style.display = 'none';
+  isLoadingSong = false;
+  applyAudioFromHost(currentAudioOutput, currentAudioVolume, currentAudioMuted); // restore normal volume now that real playback has started
+  stopLoadingAmbience();
   clearTimeout(loadingOverlayTimeout);
   loadingOverlayTimeout = null;
 }
