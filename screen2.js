@@ -181,6 +181,15 @@ function ensureAmbientContext(){
   if(ambientCtx.state === 'suspended'){ ambientCtx.resume().catch(() => {}); }
   return ambientCtx;
 }
+// Screen 2 has no "start" button of its own, so the very first genuine tap/click anywhere on this
+// page (e.g. while setting it up) is the only real user gesture available to unlock Web Audio.
+function unlockAmbienceOnFirstGesture(){
+  ensureAmbientContext();
+  document.removeEventListener('click', unlockAmbienceOnFirstGesture);
+  document.removeEventListener('touchstart', unlockAmbienceOnFirstGesture);
+}
+document.addEventListener('click', unlockAmbienceOnFirstGesture);
+document.addEventListener('touchstart', unlockAmbienceOnFirstGesture);
 function startLoadingAmbience(){
   const ctx = ensureAmbientContext();
   if(!ctx || ambientNodes) return;
@@ -259,16 +268,22 @@ function showLoadingOverlay(song){
   applyAudioFromHost(currentAudioOutput, currentAudioVolume, currentAudioMuted); // mute the real player while "loading"
   if(currentAudioOutput === 'screen2') startLoadingAmbience(); // this screen is the audio source right now
   clearTimeout(loadingOverlayTimeout);
+  clearTimeout(audioRestoreTimeout);
   loadingOverlayTimeout = setTimeout(hideLoadingOverlay, 20000);
 }
+let audioRestoreTimeout = null;
 function hideLoadingOverlay(){
   const overlay = document.getElementById('loading-overlay');
   if(overlay) overlay.style.display = 'none';
-  isLoadingSong = false;
-  applyAudioFromHost(currentAudioOutput, currentAudioVolume, currentAudioMuted); // restore normal volume now that real playback has started
   stopLoadingAmbience();
   clearTimeout(loadingOverlayTimeout);
   loadingOverlayTimeout = null;
+  clearTimeout(audioRestoreTimeout);
+  // Small buffer before actually restoring audio — same reasoning as the host (see its comment).
+  audioRestoreTimeout = setTimeout(() => {
+    isLoadingSong = false;
+    applyAudioFromHost(currentAudioOutput, currentAudioVolume, currentAudioMuted);
+  }, 1200);
 }
 
 function onYouTubeIframeAPIReady(){

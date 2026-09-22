@@ -208,6 +208,19 @@ function ensureAmbientContext(){
   if(ambientCtx.state === 'suspended'){ ambientCtx.resume().catch(() => {}); }
   return ambientCtx;
 }
+// The "เริ่มระบบ" button only unlocks this on a truly first-ever visit (its own click handler calls
+// ensureAmbientContext()) — but that button stays hidden on every later page load this session, once
+// audioUnlocked is already true from before. Without a real user gesture, the AudioContext created
+// above stays permanently "suspended" (silent) no matter how many times resume() is called from code.
+// This catches the very first genuine tap/click anywhere on the page as a fallback unlock gesture.
+function unlockAmbienceOnFirstGesture(){
+  ensureAmbientContext();
+  document.removeEventListener('click', unlockAmbienceOnFirstGesture);
+  document.removeEventListener('touchstart', unlockAmbienceOnFirstGesture);
+}
+document.addEventListener('click', unlockAmbienceOnFirstGesture);
+document.addEventListener('touchstart', unlockAmbienceOnFirstGesture);
+
 function startLoadingAmbience(){
   const ctx = ensureAmbientContext();
   if(!ctx || ambientNodes) return;
@@ -286,17 +299,26 @@ function showLoadingOverlay(song){
   applyAudioOutput(); // mutes the real player so any pre-roll ad audio stays silent
   if(state.audioOutput === 'screen1') startLoadingAmbience(); // this device is the audio source right now
   clearTimeout(loadingOverlayTimeout);
+  clearTimeout(audioRestoreTimeout);
   // Safety net: if the "playing" event never fires for some reason, don't leave this stuck forever.
   loadingOverlayTimeout = setTimeout(hideLoadingOverlay, 20000);
 }
+let audioRestoreTimeout = null;
 function hideLoadingOverlay(){
   const overlay = document.getElementById('loading-overlay');
   if(overlay) overlay.style.display = 'none';
-  isLoadingSong = false;
-  applyAudioOutput(); // restores the real player's normal volume/mute now that actual playback has started
   stopLoadingAmbience();
   clearTimeout(loadingOverlayTimeout);
   loadingOverlayTimeout = null;
+  clearTimeout(audioRestoreTimeout);
+  // Small buffer before actually restoring audio: YouTube's "PLAYING" state can fire as soon as a
+  // pre-roll ad itself starts (not only for the real song), so unmuting a beat later reduces — though
+  // can't fully guarantee eliminating, since the embedding page has no real way to tell ad from
+  // content apart — the chance of catching the tail of an ad's audio right at that transition.
+  audioRestoreTimeout = setTimeout(() => {
+    isLoadingSong = false;
+    applyAudioOutput();
+  }, 1200);
 }
 
 function loadSongIntoPlayer(song){
