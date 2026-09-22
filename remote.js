@@ -532,6 +532,21 @@ document.getElementById('search-input').addEventListener('keydown', (e) => { if(
 document.getElementById('search-input').addEventListener('input', (e) => {
   liveLocalSearchRemote(e.target.value.trim());
 });
+// Live, instant filtering of the local music library synced from the host — same pattern as the
+// host's own liveLocalSearch(), so typing shows quick matches before an explicit "ค้นหา" click.
+function liveLocalSearchRemote(q){
+  const resultsEl = document.getElementById('search-results');
+  if(!q){ resultsEl.innerHTML = ''; return; }
+  if(extractVideoId(q)) return; // a pasted YouTube link — leave it for the explicit search instead
+  const qLower = q.toLowerCase();
+  const matches = myLocalLibrary
+    .filter(f => f.title.toLowerCase().includes(qLower) || f.path.toLowerCase().includes(qLower))
+    .slice(0, 12);
+  resultsEl.innerHTML = '';
+  matches.forEach(m => resultsEl.appendChild(makeResultCard({
+    title: m.title, channel: m.path, thumbnail: LOCAL_FILE_THUMB, source: 'local', localFileId: m.id
+  })));
+}
 function wireSearchModeTabs(){
   document.querySelectorAll('#search-mode-tabs .mode-tab').forEach(tab => {
     tab.classList.toggle('active', tab.dataset.mode === remoteSearchMode);

@@ -999,6 +999,27 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
 .role-select-text{display:flex;flex-direction:column;gap:2px;min-width:0;}
 .role-select-title{font-family:'Kanit',sans-serif;font-weight:700;font-size:16px;color:var(--text);}
 .role-select-desc{font-size:12px;color:var(--text-dim);line-height:1.5;}
+
+/* ---------- backup karaoke rooms (external links) ---------- */
+.backup-rooms-section{margin-top:20px;padding-top:18px;border-top:1px solid var(--line);}
+.backup-rooms-title{font-family:'Kanit',sans-serif;font-size:14px;font-weight:600;color:var(--text-dim);margin:0 0 12px;text-align:center;}
+.backup-rooms-grid{display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;}
+.backup-room-card{
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:14px;
+  padding:12px 6px;text-decoration:none;cursor:pointer;
+  transition:transform .15s, box-shadow .15s, border-color .15s, background .15s;
+}
+.backup-room-card:hover, .backup-room-card:focus-visible{
+  transform:translateY(-3px) scale(1.04);
+  border-color:var(--gold);
+  background:var(--line);
+  box-shadow:0 8px 20px rgba(255,200,87,.25);
+  outline:none;
+}
+.backup-room-card:active{transform:translateY(-1px) scale(.98);}
+.backup-room-card img{width:40px;height:40px;border-radius:10px;object-fit:cover;background:#fff;flex-shrink:0;}
+.backup-room-card span{font-size:11px;color:var(--text);text-align:center;line-height:1.3;word-break:break-word;}
 </style>
 </head>
 <body>
@@ -1141,6 +1162,32 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
           <span class="role-select-desc">ค้นหา/เพิ่มเพลงจากมือถือ ต้องมีรหัสห้องจากจอหลัก</span>
         </span>
       </button>
+    </div>
+
+    <div class="backup-rooms-section">
+      <h3 class="backup-rooms-title">ห้องคาราโอเกะสำรอง</h3>
+      <div class="backup-rooms-grid">
+        <a class="backup-room-card" href="https://haekpak.fun/" target="_blank" rel="noopener noreferrer">
+          <img src="https://haekpak.fun/apple-touch-icon.png" alt="" onerror="this.style.visibility='hidden'">
+          <span>HaekPak</span>
+        </a>
+        <a class="backup-room-card" href="https://mugoke.com/" target="_blank" rel="noopener noreferrer">
+          <img src="https://mugoke.com/uploads/bdfc08d99ffd0c97.png" alt="" onerror="this.style.visibility='hidden'">
+          <span>MugOke</span>
+        </a>
+        <a class="backup-room-card" href="https://play.okeforyou.com/" target="_blank" rel="noopener noreferrer">
+          <img src="https://dl.dropbox.com/scl/fi/6zrqqn2ze6gn3zpqz3dh5/YouOke.png?rlkey=i5qoh6yvb92pye026m4fgeraw&st=4qzxp80l&dl=1" alt="" onerror="this.style.visibility='hidden'">
+          <span>YouOke</span>
+        </a>
+        <a class="backup-room-card" href="https://karaoke-youtube.online/" target="_blank" rel="noopener noreferrer">
+          <img src="https://itp1.itopfile.com/ImageServer/ab9929893dd66522/361/0/iTopPlus1284533433260.png" alt="" onerror="this.style.visibility='hidden'">
+          <span>TubeOKe</span>
+        </a>
+        <a class="backup-room-card" href="https://karaoke-youtube-v2.vercel.app/" target="_blank" rel="noopener noreferrer">
+          <img src="https://cdn-icons-png.flaticon.com/512/9181/9181982.png" alt="" onerror="this.style.visibility='hidden'">
+          <span>OkePlus</span>
+        </a>
+      </div>
     </div>
   </div>
 </div>

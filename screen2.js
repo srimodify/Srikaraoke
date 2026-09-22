@@ -265,8 +265,7 @@ function showLoadingOverlay(song){
   document.getElementById('loading-by').textContent = song.by ? 'เพิ่มโดย ' + song.by : '';
   overlay.style.display = 'flex';
   isLoadingSong = true;
-  applyAudioFromHost(currentAudioOutput, currentAudioVolume, currentAudioMuted); // mute the real player while "loading"
-  if(currentAudioOutput === 'screen2') startLoadingAmbience(); // this screen is the audio source right now
+  applyAudioFromHost(currentAudioOutput, currentAudioVolume, currentAudioMuted); // mute the real player while "loading" (silent — no ambient music, per request)
   clearTimeout(loadingOverlayTimeout);
   clearTimeout(audioRestoreTimeout);
   loadingOverlayTimeout = setTimeout(hideLoadingOverlay, 20000);
