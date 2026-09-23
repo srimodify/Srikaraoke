@@ -673,7 +673,18 @@ async function loadSoundEffects(){
     if(!res.ok) throw new Error('manifest not found');
     const files = await res.json();
     if(!Array.isArray(files)) throw new Error('manifest is not a list');
-    soundEffects = files.map(f => ({ file: f, label: f.replace(/\.[^.]+$/, '') }));
+    // Each entry can be a plain filename string (old format, still supported) or an object
+    // {file, icon, label} so a sound can show an emoji instead of just its filename.
+    soundEffects = files.map(f => {
+      if(typeof f === 'string'){
+        return { file: f, icon: '', label: f.replace(/\.[^.]+$/, '') };
+      }
+      return {
+        file: f.file || '',
+        icon: f.icon || '',
+        label: f.label || (f.file ? f.file.replace(/\.[^.]+$/, '') : '')
+      };
+    }).filter(fx => fx.file);
   }catch(e){
     soundEffects = [];
   }
@@ -691,7 +702,19 @@ function renderEffectsPanel(){
   soundEffects.forEach(fx => {
     const btn = document.createElement('button');
     btn.className = 'effects-btn';
-    btn.textContent = fx.label;
+    if(fx.icon){
+      const iconEl = document.createElement('span');
+      iconEl.className = 'effects-btn-icon';
+      iconEl.textContent = fx.icon;
+      const labelEl = document.createElement('span');
+      labelEl.className = 'effects-btn-label';
+      labelEl.textContent = fx.label;
+      btn.appendChild(iconEl);
+      btn.appendChild(labelEl);
+    } else {
+      btn.textContent = fx.label;
+    }
+    btn.title = fx.label;
     btn.onclick = () => playSoundEffect(fx.file);
     list.appendChild(btn);
   });
@@ -937,7 +960,27 @@ function syncIdleJingle(){
   const isSource = state.audioOutput === 'screen1';
   if(isIdle && isSource && audioUnlocked){
     el.volume = state.muted ? 0 : (state.volume / 100);
-    if(el.paused){ el.play().catch(() => {}); }
+    if(el.paused){
+      el.play().catch(() => {
+        // Most likely cause: this device just clicked "เริ่มระบบ" a split-second ago and the file
+        // hasn't buffered anything yet, so the very first play() attempt gets rejected. Retry the
+        // moment the browser says it's actually ready to play — no extra click needed for that case.
+        // Also keep the old "next real interaction" fallback as a safety net for genuine autoplay
+        // blocks that a mere canplay event wouldn't fix.
+        const retryOnReady = () => {
+          cleanup();
+          syncIdleJingle(); // re-checks current state fresh — safe even if things changed meanwhile
+        };
+        const cleanup = () => {
+          el.removeEventListener('canplay', retryOnReady);
+          document.removeEventListener('click', retryOnReady);
+          document.removeEventListener('touchstart', retryOnReady);
+        };
+        el.addEventListener('canplay', retryOnReady, { once: true });
+        document.addEventListener('click', retryOnReady, { once: true });
+        document.addEventListener('touchstart', retryOnReady, { once: true });
+      });
+    }
   } else if(!el.paused){
     el.pause();
   }

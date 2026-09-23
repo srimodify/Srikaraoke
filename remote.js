@@ -243,7 +243,18 @@ function renderEffectsBar(){
   mySoundEffects.forEach(fx => {
     const btn = document.createElement('button');
     btn.className = 'effects-bar-btn';
-    btn.textContent = fx.label;
+    if(fx.icon){
+      const iconEl = document.createElement('span');
+      iconEl.className = 'effects-bar-btn-icon';
+      iconEl.textContent = fx.icon;
+      const labelEl = document.createElement('span');
+      labelEl.textContent = fx.label;
+      btn.appendChild(iconEl);
+      btn.appendChild(labelEl);
+    } else {
+      btn.textContent = fx.label;
+    }
+    btn.title = fx.label;
     btn.onclick = () => send({ type: 'PLAY_SOUND_EFFECT', file: fx.file });
     list.appendChild(btn);
   });
