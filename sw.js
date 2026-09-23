@@ -10,7 +10,9 @@ const APP_SHELL = [
   './manifest-remote.json',
   './manifest-screen2.json',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  './assets/please-select-song.mp3',
+  './sound-effects/manifest.json'
 ];
 
 self.addEventListener('install', (event) => {

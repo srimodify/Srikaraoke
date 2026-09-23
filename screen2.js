@@ -141,9 +141,28 @@ function handleHostMessage(msg){
     myChords = msg.chords || {};
     return;
   }
+  if(msg.type === 'PLAY_SOUND_EFFECT'){
+    playSoundEffectOnScreen2(msg.file);
+    return;
+  }
   if(msg.type === 'SCORE_ANNOUNCE'){
     showScorePopup(msg.entry, msg.leaderboard);
   }
+}
+
+// Only actually plays if this screen is currently the audio source (same "เสียงออกที่จอไหน" setting
+// as everything else) — the host only forwards these here in that exact situation anyway, but this
+// stays defensive in case a message arrives right as the setting is changing.
+function playSoundEffectOnScreen2(file){
+  if(!file || currentAudioOutput !== 'screen2') return;
+  const el = document.getElementById('sfx-player');
+  if(!el) return;
+  try{
+    el.src = 'sound-effects/' + encodeURIComponent(file);
+    el.volume = currentAudioMuted ? 0 : (currentAudioVolume / 100);
+    el.currentTime = 0;
+    el.play().catch(() => {});
+  }catch(e){}
 }
 
 // Screen 2's own YouTube player is normally muted (the host is the default audio source), but if

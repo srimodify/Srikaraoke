@@ -216,6 +216,11 @@ function handleHostMessage(msg){
     myAudioOutput = msg.output || 'screen1';
     return;
   }
+  if(msg.type === 'SOUND_EFFECTS'){
+    mySoundEffects = msg.effects || [];
+    renderEffectsBar();
+    return;
+  }
   if(msg.type === 'SCORE_ANNOUNCE'){
     showScorePopup(msg.entry, msg.leaderboard);
   }
@@ -224,6 +229,32 @@ function handleHostMessage(msg){
 /* ---------------- Local music library (metadata only — files stay on the host device) ---------------- */
 let myLocalLibrary = [];
 let myAudioOutput = 'screen1';
+
+/* ---------------- Sound effects (bar at the top — host actually plays the sound, not this device) ---------------- */
+let mySoundEffects = [];
+function renderEffectsBar(){
+  const list = document.getElementById('effects-bar-list');
+  if(!list) return;
+  if(mySoundEffects.length === 0){
+    list.innerHTML = '<div class="effects-bar-empty">ยังไม่มีเสียงเอฟเฟกต์ (เพิ่มได้ที่จอหลัก)</div>';
+    return;
+  }
+  list.innerHTML = '';
+  mySoundEffects.forEach(fx => {
+    const btn = document.createElement('button');
+    btn.className = 'effects-bar-btn';
+    btn.textContent = fx.label;
+    btn.onclick = () => send({ type: 'PLAY_SOUND_EFFECT', file: fx.file });
+    list.appendChild(btn);
+  });
+}
+document.getElementById('btn-effects-toggle').onclick = () => {
+  const bar = document.getElementById('effects-bar');
+  const btn = document.getElementById('btn-effects-toggle');
+  const shown = bar.style.display !== 'none';
+  bar.style.display = shown ? 'none' : 'flex';
+  btn.classList.toggle('active', !shown);
+};
 
 /* ---------------- Singing score popup (mirrors host) ---------------- */
 let scorePopupTimer = null;

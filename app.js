@@ -452,6 +452,7 @@ function renderNowPlaying(){
   document.getElementById('btn-playpause').textContent = state.isPlaying ? '⏸ หยุด' : '▶ เล่น';
   renderNextUpBar();
   renderChordBar();
+  syncIdleJingle();
 }
 
 // "Now playing" is shown as a continuously scrolling ticker (right-to-left) across the bottom of the
@@ -659,6 +660,59 @@ function openChordsModal(){
   renderChordLibrary();
   loadChordFormForTarget();
   openModal('chords-modal');
+}
+
+/* ---------------- Sound effects (vertical panel over the left side of the video) ----------------
+   File list comes from sound-effects/manifest.json — a plain JSON array of filenames that the
+   operator edits by hand (a static site has no way to "scan a folder" on its own). Button labels are
+   just the filename with its extension stripped. */
+let soundEffects = []; // [{file, label}]
+async function loadSoundEffects(){
+  try{
+    const res = await fetch('sound-effects/manifest.json');
+    if(!res.ok) throw new Error('manifest not found');
+    const files = await res.json();
+    if(!Array.isArray(files)) throw new Error('manifest is not a list');
+    soundEffects = files.map(f => ({ file: f, label: f.replace(/\.[^.]+$/, '') }));
+  }catch(e){
+    soundEffects = [];
+  }
+  renderEffectsPanel();
+  connections.forEach(c => { if(c.open) c.send({ type: 'SOUND_EFFECTS', effects: soundEffects }); });
+}
+function renderEffectsPanel(){
+  const list = document.getElementById('effects-panel-list');
+  if(!list) return;
+  if(soundEffects.length === 0){
+    list.innerHTML = '<div class="effects-empty-note">ยังไม่มีเสียงเอฟเฟกต์ — เพิ่มไฟล์ได้ที่โฟลเดอร์ sound-effects (ดู README.txt ในโฟลเดอร์นั้น)</div>';
+    return;
+  }
+  list.innerHTML = '';
+  soundEffects.forEach(fx => {
+    const btn = document.createElement('button');
+    btn.className = 'effects-btn';
+    btn.textContent = fx.label;
+    btn.onclick = () => playSoundEffect(fx.file);
+    list.appendChild(btn);
+  });
+}
+// Plays through whichever screen is the current audio source (same "เสียงออกที่จอไหน" setting used
+// everywhere else) — if that's Screen 2, this device doesn't have the speakers right now, so it just
+// asks Screen 2 to play the effect instead of playing it here.
+function playSoundEffect(file){
+  if(!file) return;
+  if(state.audioOutput === 'screen2'){
+    connections.forEach(c => { if(c.open) c.send({ type: 'PLAY_SOUND_EFFECT', file }); });
+    return;
+  }
+  const el = document.getElementById('sfx-player');
+  if(!el) return;
+  try{
+    el.src = 'sound-effects/' + encodeURIComponent(file);
+    el.volume = state.muted ? 0 : (state.volume / 100);
+    el.currentTime = 0;
+    el.play().catch(() => {});
+  }catch(e){}
 }
 
 
@@ -869,10 +923,28 @@ function applyAudioOutput(){
   connections.forEach(c => {
     if(c.open) c.send({ type: 'AUDIO_OUTPUT', output: state.audioOutput, volume: state.volume, muted: state.muted });
   });
+  syncIdleJingle();
+}
+
+// "กรุณาเลือกเพลง.mp3" — loops softly whenever the queue is empty (first-ever load with nothing
+// queued yet, or the last song just finished), so the room isn't silent while waiting for someone to
+// pick a song. Stops the instant a real song starts. Only plays on whichever screen is the current
+// audio source, and needs the same one-time autoplay unlock as everything else ("เริ่มระบบ" button).
+function syncIdleJingle(){
+  const el = document.getElementById('idle-jingle');
+  if(!el) return;
+  const isIdle = !currentSong();
+  const isSource = state.audioOutput === 'screen1';
+  if(isIdle && isSource && audioUnlocked){
+    el.volume = state.muted ? 0 : (state.volume / 100);
+    if(el.paused){ el.play().catch(() => {}); }
+  } else if(!el.paused){
+    el.pause();
+  }
 }
 
 /* ---------------- YouTube ---------------- */
-let audioUnlocked = sessionStorage.getItem('sriKaraoke_audioUnlocked') === '1';
+let audioUnlocked = localStorage.getItem('sriKaraoke_audioUnlocked') === '1';
 
 function onYouTubeIframeAPIReady(){
   ytPlayer = new YT.Player('player', {
@@ -933,7 +1005,7 @@ document.getElementById('btn-start-audio').onclick = () => {
     }catch(e){}
   }
   audioUnlocked = true;
-  sessionStorage.setItem('sriKaraoke_audioUnlocked', '1');
+  localStorage.setItem('sriKaraoke_audioUnlocked', '1');
   document.getElementById('btn-start-audio').style.display = 'none';
   renderNowPlaying();
 };
@@ -1072,6 +1144,7 @@ function initPeer(){
             sendState(conn);
             conn.send({ type: 'LOCAL_LIBRARY', localLibrary: state.localLibrary });
             conn.send({ type: 'CHORDS_LIBRARY', chords: state.chords });
+            conn.send({ type: 'SOUND_EFFECTS', effects: soundEffects });
           } else {
             conn.send({ type: 'JOIN_REJECTED' });
             setTimeout(() => { try{ conn.close(); }catch(e){} }, 300);
@@ -1144,7 +1217,7 @@ function renderConnectedDevices(){
 
 // Guests can queue/remove songs and adjust tempo. Admins get full remote control,
 // equivalent to standing at the main screen — matches what a scanned Admin QR grants.
-const GUEST_ALLOWED = new Set(['ADD_SONG', 'REMOVE_SONG', 'TEMPO_UP', 'TEMPO_DOWN', 'VOLUME_UP', 'VOLUME_DOWN', 'TOGGLE_MUTE']);
+const GUEST_ALLOWED = new Set(['ADD_SONG', 'REMOVE_SONG', 'TEMPO_UP', 'TEMPO_DOWN', 'VOLUME_UP', 'VOLUME_DOWN', 'TOGGLE_MUTE', 'PLAY_SOUND_EFFECT']);
 const ADMIN_ALLOWED = new Set([
   ...GUEST_ALLOWED,
   'SKIP', 'PREV', 'TOGGLE_PLAY', 'INSERT_NEXT', 'MOVE_UP', 'MOVE_DOWN', 'REORDER_BEFORE', 'LOAD_PLAYLIST', 'PLAY_SONG'
@@ -1170,6 +1243,7 @@ function handleRemoteMessage(msg, conn){
     case 'VOLUME_UP': volumeStep(1); break;
     case 'VOLUME_DOWN': volumeStep(-1); break;
     case 'TOGGLE_MUTE': toggleMute(); break;
+    case 'PLAY_SOUND_EFFECT': playSoundEffect(msg.file); break;
     case 'SKIP': skip('ข้าม (แอดมินรีโมท)'); break;
     case 'PREV': prevSong(); break;
     case 'TOGGLE_PLAY': togglePlayPause(); break;
@@ -1785,6 +1859,15 @@ document.getElementById('queue-toggle-btn').onclick = () => {
   btn.textContent = hidden ? '◀' : '▶';
   btn.title = hidden ? 'แสดงคิวเพลง' : 'ซ่อนคิวเพลง';
 };
+document.getElementById('effects-toggle-btn').onclick = () => {
+  const panel = document.getElementById('effects-panel');
+  const btn = document.getElementById('effects-toggle-btn');
+  const shown = panel.style.display !== 'none';
+  panel.style.display = shown ? 'none' : 'flex';
+  btn.textContent = shown ? '▶' : '◀';
+  btn.title = shown ? 'แสดงเสียงเอฟเฟกต์' : 'ซ่อนเสียงเอฟเฟกต์';
+};
+loadSoundEffects();
 document.getElementById('btn-new-party').onclick = startNewParty;
 
 /* ---------------- Power-saving mode (turns off the idle-screen animations, for weaker devices) ---------------- */

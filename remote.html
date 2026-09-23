@@ -141,6 +141,26 @@ header h1 span{color:var(--magenta);}
   font-size:11px;background:var(--gold);color:#1B1533;font-weight:700;
   padding:3px 9px;border-radius:999px;letter-spacing:.3px;
 }
+#btn-effects-toggle{
+  background:var(--panel-2);border:1px solid var(--line);color:var(--text-dim);
+  border-radius:999px;width:28px;height:28px;font-size:13px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+#btn-effects-toggle.active{background:var(--gold);color:#1B1533;border-color:var(--gold);}
+#effects-bar{
+  margin-top:10px;
+  display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;
+  -webkit-overflow-scrolling:touch;
+}
+#effects-bar-list{display:flex;gap:8px;}
+.effects-bar-btn{
+  flex-shrink:0;
+  background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:10px;padding:8px 14px;font-size:13px;cursor:pointer;
+  font-family:'Sarabun',sans-serif;white-space:nowrap;
+}
+.effects-bar-btn:active{background:var(--line);}
+.effects-bar-empty{color:var(--text-dim);font-size:12px;padding:6px 2px;}
 #admin-transport{
   display:flex;gap:8px;margin-top:10px;
 }
@@ -437,9 +457,13 @@ nav#tabbar button:focus-visible{outline:2px solid var(--gold);}
         <h1>Sri<span>Karaoke</span></h1>
       </div>
       <div style="display:flex;align-items:center;gap:6px;">
+        <button id="btn-effects-toggle" title="เสียงเอฟเฟกต์">🔊</button>
         <span class="role-badge" id="role-badge" style="display:none;">👑 แอดมิน</span>
         <span class="room-pill" id="room-pill">------</span>
       </div>
+    </div>
+    <div id="effects-bar" style="display:none;">
+      <div id="effects-bar-list"></div>
     </div>
     <div id="np-strip" style="display:none;">
       <img id="np-thumb" src="" alt="">
