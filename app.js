@@ -546,12 +546,13 @@ function renderChordBar(){
   const bar = document.getElementById('chord-bar');
   const track = document.getElementById('chord-track');
   const nextBar = document.getElementById('next-up-bar');
+  const headerH = getHeaderHeightPx();
   const song = currentSong();
   const key = songChordKey(song);
   const entry = key ? state.chords[key] : null;
   if(!song || !entry || !entry.timeline || entry.timeline.length === 0){
     bar.style.display = 'none';
-    nextBar.style.top = '0';
+    nextBar.style.top = headerH + 'px';
     return;
   }
   const { currentTime: curTime, duration } = getPlaybackTimes();
@@ -575,7 +576,7 @@ function renderChordBar(){
   for(let i = 0; i < timeline.length; i++){
     if(timeline[i].t <= curTime) idx = i; else break;
   }
-  if(idx === -1){ bar.style.display = 'none'; nextBar.style.top = '0'; return; }
+  if(idx === -1){ bar.style.display = 'none'; nextBar.style.top = headerH + 'px'; return; }
 
   track.querySelectorAll('.chord-segment').forEach(el => {
     el.classList.toggle('current', parseInt(el.dataset.idx, 10) === idx);
@@ -583,7 +584,7 @@ function renderChordBar(){
   bar.style.display = 'block';
   // Nudge the "up next" banner down while chords are showing, so the two never overlap on the rare
   // occasion a song has chords AND is in its last 15 seconds at the same time.
-  nextBar.style.top = '52px';
+  nextBar.style.top = (headerH + 52) + 'px';
 }
 setInterval(renderChordBar, 500);
 
@@ -706,14 +707,12 @@ function renderEffectsPanel(){
       const iconEl = document.createElement('span');
       iconEl.className = 'effects-btn-icon';
       iconEl.textContent = fx.icon;
-      const labelEl = document.createElement('span');
-      labelEl.className = 'effects-btn-label';
-      labelEl.textContent = fx.label;
       btn.appendChild(iconEl);
-      btn.appendChild(labelEl);
-    } else {
-      btn.textContent = fx.label;
     }
+    const labelEl = document.createElement('span');
+    labelEl.className = 'effects-btn-label';
+    labelEl.textContent = fx.label;
+    btn.appendChild(labelEl);
     btn.title = fx.label;
     btn.onclick = () => playSoundEffect(fx.file);
     list.appendChild(btn);
@@ -1895,13 +1894,51 @@ document.getElementById('btn-clear-local-folder').onclick = () => {
   clearLocalFolder();
   document.getElementById('local-folder-input').value = '';
 };
-document.getElementById('queue-toggle-btn').onclick = () => {
-  const main = document.getElementById('main-content');
-  const hidden = main.classList.toggle('queue-hidden');
+function getHeaderHeightPx(){
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--header-h');
+  return parseFloat(v) || 0;
+}
+function updateHeaderHeightVar(){
+  const header = document.querySelector('header');
+  if(header.classList.contains('collapsed')){
+    document.documentElement.style.setProperty('--header-h', '0px');
+  } else {
+    document.documentElement.style.setProperty('--header-h', header.getBoundingClientRect().height + 'px');
+  }
+}
+function isPortraitNow(){
+  return window.matchMedia('(orientation: portrait)').matches;
+}
+// The queue panel used to permanently take up its own share of the layout, so this button could just
+// sit at a fixed spot on the (moving) boundary of the video area. Now that the panel floats on top of
+// the video instead, this button has to be positioned in JS against the panel's own actual size —
+// and that boundary is a different edge entirely in portrait (bottom, panel below) vs landscape
+// (right, panel beside), so the icon/axis both flip with orientation too.
+function updateQueueTogglePosition(){
   const btn = document.getElementById('queue-toggle-btn');
-  btn.textContent = hidden ? '◀' : '▶';
+  const panel = document.getElementById('queue-panel');
+  const hidden = document.getElementById('main-content').classList.contains('queue-hidden');
+  if(isPortraitNow()){
+    btn.style.top = ''; btn.style.right = '';
+    btn.style.left = '50%';
+    btn.style.bottom = (hidden ? 0 : panel.getBoundingClientRect().height) + 'px';
+    btn.style.transform = 'translate(-50%, 50%)';
+    btn.textContent = hidden ? '▲' : '▼';
+  } else {
+    btn.style.left = ''; btn.style.bottom = '';
+    btn.style.top = 'calc(50% + var(--header-h,0px)/2)';
+    btn.style.right = (hidden ? 0 : panel.getBoundingClientRect().width) + 'px';
+    btn.style.transform = 'translate(50%, -50%)';
+    btn.textContent = hidden ? '◀' : '▶';
+  }
   btn.title = hidden ? 'แสดงคิวเพลง' : 'ซ่อนคิวเพลง';
+}
+document.getElementById('queue-toggle-btn').onclick = () => {
+  document.getElementById('main-content').classList.toggle('queue-hidden');
+  updateQueueTogglePosition();
 };
+window.addEventListener('resize', updateQueueTogglePosition);
+window.addEventListener('orientationchange', () => setTimeout(updateQueueTogglePosition, 200));
 document.getElementById('effects-toggle-btn').onclick = () => {
   const panel = document.getElementById('effects-panel');
   const btn = document.getElementById('effects-toggle-btn');
@@ -2011,6 +2048,9 @@ document.getElementById('btn-logout-confirm').onclick = () => {
 function setHeaderCollapsed(collapsed){
   document.querySelector('header').classList.toggle('collapsed', collapsed);
   document.getElementById('btn-toggle-header').textContent = collapsed ? '▼' : '▲';
+  updateHeaderHeightVar();
+  updateQueueTogglePosition();
+  if(!collapsed) setTimeout(() => { updateHeaderHeightVar(); updateQueueTogglePosition(); }, 300); // re-measure once the expand transition settles
 }
 function toggleHeaderCollapsed(){
   setHeaderCollapsed(!document.querySelector('header').classList.contains('collapsed'));
@@ -2115,3 +2155,12 @@ document.addEventListener('visibilitychange', () => {
 
 initPeer();
 renderQueue();
+
+// Now that the header/queue panel/effects panel all float over the video instead of taking up their
+// own fixed layout space, several of them need to know the header's actual current height (it can
+// change — collapsed vs expanded, or just wrapping differently on a narrow screen) and the queue
+// panel's actual current size, to position themselves correctly without overlapping each other.
+updateHeaderHeightVar();
+updateQueueTogglePosition();
+window.addEventListener('resize', updateHeaderHeightVar);
+window.addEventListener('orientationchange', () => setTimeout(updateHeaderHeightVar, 200));

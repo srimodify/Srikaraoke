@@ -50,8 +50,12 @@ function connectToRoom(roomId, pin, isReconnect){
   currentRoomId = roomId;
   currentPin = pin || '';
   authFailed = false;
-  sessionStorage.setItem(STORAGE_ROOMID, roomId);
-  sessionStorage.setItem(STORAGE_PIN, currentPin);
+  // localStorage, not sessionStorage — a screen locking/sleeping (or an Android TV box's aggressive
+  // background app management) can suspend or fully discard this tab to save memory. sessionStorage
+  // can be wiped when that happens, forcing a fresh QR scan; localStorage survives that (and even a
+  // full browser/device restart), so reopening the page reconnects to the same room automatically.
+  localStorage.setItem(STORAGE_ROOMID, roomId);
+  localStorage.setItem(STORAGE_PIN, currentPin);
   if(!isReconnect) document.getElementById('connect-status').textContent = 'กำลังเชื่อมต่อ…';
   if(peer){ try{ peer.destroy(); }catch(e){} }
   peer = new Peer(undefined, { config: ICE_CONFIG });
@@ -90,15 +94,29 @@ function scheduleReconnect(){
 
 // Screen 2 is meant to sit untouched for a whole event, so it needs the same "wake up and
 // reconnect immediately" handling as the phone remotes do.
-document.addEventListener('visibilitychange', () => {
-  if(document.visibilityState !== 'visible' || !currentRoomId || authFailed) return;
+// Screens sleep/lock (or an Android TV box aggressively manages background apps), which can silently
+// kill the WebRTC connection without ever firing a 'close' event. Check the connection right away
+// when the page becomes visible/focused again — using the room code/PIN already remembered, so no
+// re-scan of the QR code is needed.
+function reconnectIfStale(){
+  if(!currentRoomId || authFailed) return;
   const stale = !conn || !conn.open || !peer || peer.disconnected || peer.destroyed;
   if(stale){
     reconnectAttempts = 0;
     if(reconnectTimer){ clearTimeout(reconnectTimer); reconnectTimer = null; }
     connectToRoom(currentRoomId, currentPin, true);
   }
+}
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible') reconnectIfStale();
 });
+window.addEventListener('focus', reconnectIfStale);
+// Extra safety net that doesn't depend on any browser event firing correctly at all, so a dropped
+// connection can't go unnoticed for more than ~10s — especially useful for a screen meant to be left
+// running unattended for a whole event.
+setInterval(() => {
+  if(document.visibilityState === 'visible') reconnectIfStale();
+}, 10000);
 
 function handleHostMessage(msg){
   if(msg.type === 'JOIN_OK'){
@@ -543,8 +561,8 @@ document.getElementById('btn-connect').onclick = () => {
 
 (function autoConnect(){
   const params = new URLSearchParams(window.location.search);
-  const room = params.get('room') || sessionStorage.getItem(STORAGE_ROOMID);
-  const pin = params.get('pin') || sessionStorage.getItem(STORAGE_PIN) || '';
+  const room = params.get('room') || localStorage.getItem(STORAGE_ROOMID);
+  const pin = params.get('pin') || localStorage.getItem(STORAGE_PIN) || '';
   if(room){
     document.getElementById('room-input').value = room.replace('srikaraoke-', '').toUpperCase();
     document.getElementById('pin-input').value = pin;

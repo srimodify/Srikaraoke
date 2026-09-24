@@ -106,9 +106,13 @@ function connectToRoom(roomId, pin, adminToken, isReconnect){
   currentPin = pin || '';
   currentAdminToken = adminToken || '';
   authFailed = false;
-  sessionStorage.setItem(STORAGE_ROOMID, roomId);
-  sessionStorage.setItem(STORAGE_PIN, currentPin);
-  sessionStorage.setItem(STORAGE_ADMINTOKEN, currentAdminToken);
+  // localStorage, not sessionStorage — a phone's screen locking/sleeping can cause the browser to
+  // suspend or even fully discard a background tab to save memory. sessionStorage can be wiped when
+  // that happens, forcing a fresh QR scan; localStorage survives that (and even a full browser
+  // restart), so reopening the app reconnects to the same room automatically.
+  localStorage.setItem(STORAGE_ROOMID, roomId);
+  localStorage.setItem(STORAGE_PIN, currentPin);
+  localStorage.setItem(STORAGE_ADMINTOKEN, currentAdminToken);
   if(!isReconnect){
     document.getElementById('connect-status').textContent = 'กำลังเชื่อมต่อ…';
   }
@@ -150,15 +154,26 @@ function scheduleReconnect(){
 // connection without ever firing a 'close' event. The moment the screen wakes back up, check the
 // connection right away instead of waiting for PeerJS to eventually notice — using the same room
 // code/PIN/admin token already remembered, so no re-scan of the QR code is needed.
-document.addEventListener('visibilitychange', () => {
-  if(document.visibilityState !== 'visible' || !currentRoomId || authFailed) return;
+function reconnectIfStale(){
+  if(!currentRoomId || authFailed) return;
   const stale = !conn || !conn.open || !peer || peer.disconnected || peer.destroyed;
   if(stale){
     reconnectAttempts = 0;
     if(reconnectTimer){ clearTimeout(reconnectTimer); reconnectTimer = null; }
     connectToRoom(currentRoomId, currentPin, currentAdminToken, true);
   }
+}
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible') reconnectIfStale();
 });
+// Some mobile browsers (and PWAs opened from the home screen) don't fire visibilitychange
+// reliably when coming back from a locked/sleeping screen — 'focus' catches those cases too.
+window.addEventListener('focus', reconnectIfStale);
+// Extra safety net on top of both of the above: a periodic check that doesn't depend on any browser
+// event firing correctly at all, so a dropped connection can't go unnoticed for more than ~10s.
+setInterval(() => {
+  if(document.visibilityState === 'visible') reconnectIfStale();
+}, 10000);
 
 function send(msg){
   if(conn && conn.open) conn.send(msg);
@@ -247,13 +262,12 @@ function renderEffectsBar(){
       const iconEl = document.createElement('span');
       iconEl.className = 'effects-bar-btn-icon';
       iconEl.textContent = fx.icon;
-      const labelEl = document.createElement('span');
-      labelEl.textContent = fx.label;
       btn.appendChild(iconEl);
-      btn.appendChild(labelEl);
-    } else {
-      btn.textContent = fx.label;
     }
+    const labelEl = document.createElement('span');
+    labelEl.className = 'effects-bar-btn-label';
+    labelEl.textContent = fx.label;
+    btn.appendChild(labelEl);
     btn.title = fx.label;
     btn.onclick = () => send({ type: 'PLAY_SOUND_EFFECT', file: fx.file });
     list.appendChild(btn);
@@ -608,9 +622,9 @@ document.getElementById('btn-search').onclick = doSearch;
 /* Auto-connect from ?room=/&pin=/&admintoken= params (QR scan), or resume the last room after a refresh */
 (function autoConnect(){
   const params = new URLSearchParams(window.location.search);
-  const room = params.get('room') || sessionStorage.getItem(STORAGE_ROOMID);
-  const pin = params.get('pin') || sessionStorage.getItem(STORAGE_PIN) || '';
-  const adminToken = params.get('admintoken') || sessionStorage.getItem(STORAGE_ADMINTOKEN) || '';
+  const room = params.get('room') || localStorage.getItem(STORAGE_ROOMID);
+  const pin = params.get('pin') || localStorage.getItem(STORAGE_PIN) || '';
+  const adminToken = params.get('admintoken') || localStorage.getItem(STORAGE_ADMINTOKEN) || '';
   if(room){
     document.getElementById('room-input').value = room.replace('srikaraoke-', '').toUpperCase();
     document.getElementById('pin-input').value = pin;
