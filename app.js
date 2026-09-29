@@ -1747,9 +1747,13 @@ function parseLyricXml(xmlString){
 }
 async function extractMp3Lyrics(file){
   try{
+    console.log('[MP3 Lyrics] Reading file:', file.name, file.size, 'bytes');
     const buf = await file.arrayBuffer();
     const view = new DataView(buf);
-    if(buf.byteLength < 10 || view.getUint8(0) !== 0x49 || view.getUint8(1) !== 0x44 || view.getUint8(2) !== 0x33) return null; // "ID3"
+    if(buf.byteLength < 10 || view.getUint8(0) !== 0x49 || view.getUint8(1) !== 0x44 || view.getUint8(2) !== 0x33){
+      console.log('[MP3 Lyrics] No ID3v2 tag found at the start of this file — nothing to extract.');
+      return null;
+    }
     const majorVersion = view.getUint8(3);
     const flags = view.getUint8(5);
     const tagSize = synchsafeInt(view, 6);
@@ -1795,27 +1799,43 @@ async function extractMp3Lyrics(file){
       }
       offset = frameStart + frameSize;
     }
+    console.log('[MP3 Lyrics] TEXT frame with lyric data found:', !!lyricsBytes, '| APIC (cover) frame found:', !!coverBytes);
     let parsed = null;
     if(lyricsBytes){
       const asLatin1 = new TextDecoder('latin1').decode(lyricsBytes);
       if(asLatin1.startsWith('LyrHdr1')){
-        const b64 = asLatin1.slice(7);
-        const binStr = atob(b64);
-        const compressed = new Uint8Array(binStr.length);
-        for(let i = 0; i < binStr.length; i++) compressed[i] = binStr.charCodeAt(i);
-        const inflated = await inflateZlib(compressed);
-        const xmlText = new TextDecoder('windows-874').decode(inflated);
-        parsed = parseLyricXml(xmlText);
+        try{
+          const b64 = asLatin1.slice(7);
+          const binStr = atob(b64);
+          const compressed = new Uint8Array(binStr.length);
+          for(let i = 0; i < binStr.length; i++) compressed[i] = binStr.charCodeAt(i);
+          if(typeof DecompressionStream === 'undefined'){
+            console.warn('[MP3 Lyrics] This browser does not support DecompressionStream — cannot read embedded lyrics. Showing background+title only.');
+          } else {
+            const inflated = await inflateZlib(compressed);
+            console.log('[MP3 Lyrics] Decompressed', inflated.length, 'bytes of XML lyric data.');
+            const xmlText = new TextDecoder('windows-874').decode(inflated);
+            parsed = parseLyricXml(xmlText);
+            console.log('[MP3 Lyrics] Parsed lyric lines:', parsed ? parsed.lines.length : 'PARSING FAILED (see next warning if any)');
+          }
+        }catch(innerErr){
+          console.warn('[MP3 Lyrics] Failed to decode/decompress/parse the embedded lyric data:', innerErr);
+        }
+      } else {
+        console.log('[MP3 Lyrics] TEXT frame found but does not start with "LyrHdr1" — not this karaoke format, or a different one.');
       }
     }
     let coverDataUrl = null;
     if(coverBytes && coverBytes.length > 0){
       coverDataUrl = `data:${coverMime || 'image/jpeg'};base64,${bytesToBase64(coverBytes)}`;
     }
-    if(!parsed && !coverDataUrl) return null;
+    if(!parsed && !coverDataUrl){
+      console.log('[MP3 Lyrics] No lyrics and no cover art found for this file — showing background+title only.');
+      return null;
+    }
     return { lines: parsed?.lines || null, title: parsed?.title || '', artist: parsed?.artist || '', coverDataUrl };
   }catch(e){
-    console.warn('MP3 lyric parse failed', e);
+    console.warn('[MP3 Lyrics] Unexpected error while parsing this file:', e);
     return null;
   }
 }
@@ -1855,8 +1875,10 @@ function loadMp3LyricsForSong(song){
   document.getElementById('mp3-bg').style.backgroundImage = '';
   document.getElementById('mp3-title').textContent = song.title;
   document.getElementById('mp3-artist').textContent = '';
+  console.log('[MP3 Lyrics] Loading lyrics for:', song.title, '| localFileId:', song.localFileId, '| file in memory:', localFiles.has(song.localFileId));
   getMp3Lyrics(song).then(result => {
-    if(myToken !== mp3LyricsLoadToken) return; // a different song has loaded since this was requested
+    console.log('[MP3 Lyrics] Result for', song.title, ':', result ? { hasLines: !!result.lines, lineCount: result.lines?.length, hasCover: !!result.coverDataUrl } : 'null (no lyrics/cover found)');
+    if(myToken !== mp3LyricsLoadToken) { console.log('[MP3 Lyrics] Discarding result — a different song loaded meanwhile.'); return; }
     currentMp3Lyrics = result;
     if(result && result.artist) document.getElementById('mp3-artist').textContent = result.artist;
     if(result && result.coverDataUrl){
@@ -1865,6 +1887,8 @@ function loadMp3LyricsForSong(song){
     }
     document.getElementById('mp3-lyrics').style.display = (result && result.lines) ? 'flex' : 'none';
     broadcastMp3Lyrics(song, result);
+  }).catch(err => {
+    console.error('[MP3 Lyrics] Unexpected error loading lyrics:', err);
   });
 }
 
