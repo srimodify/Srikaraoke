@@ -1203,9 +1203,14 @@ function initPeer(){
             conn.send({ type: 'LOCAL_LIBRARY', localLibrary: state.localLibrary });
             conn.send({ type: 'CHORDS_LIBRARY', chords: state.chords });
             conn.send({ type: 'SOUND_EFFECTS', effects: soundEffects });
-            if(currentMp3Lyrics){
+            {
               const song = currentSong();
-              if(song) conn.send({ type: 'MP3_LYRICS', songId: song.id, title: song.title, artist: currentMp3Lyrics.artist || '', lines: currentMp3Lyrics.lines || null, coverDataUrl: currentMp3Lyrics.coverDataUrl || null });
+              if(song && song.source === 'local'){
+                const file = localFiles.get(song.localFileId);
+                if(file && isAudioOnlyFile(file.name)){
+                  conn.send({ type: 'MP3_LYRICS', songId: song.id, code: song.title, title: currentMp3Lyrics?.title || '', artist: currentMp3Lyrics?.artist || '', lines: currentMp3Lyrics?.lines || null, coverDataUrl: currentMp3Lyrics?.coverDataUrl || null });
+                }
+              }
             }
           } else {
             conn.send({ type: 'JOIN_REJECTED' });
@@ -1894,12 +1899,15 @@ let mp3LyricsLoadToken = 0; // guards against a slow parse resolving after the u
 function hideMp3NowPlaying(){
   document.getElementById('mp3-now-playing').style.display = 'none';
   document.getElementById('mp3-lyrics').style.display = 'none';
+  document.getElementById('mp3-title-row').style.display = 'none';
+  document.getElementById('mp3-artist-row').style.display = 'none';
+  document.getElementById('mp3-progress-wrap').style.display = 'none';
   document.getElementById('mp3-bg').classList.remove('has-cover');
   document.getElementById('mp3-bg').style.backgroundImage = '';
   currentMp3Lyrics = null;
   currentLyricLineIndex = -1;
   mp3LyricsLoadToken++;
-  connections.forEach(c => { if(c.open) c.send({ type: 'MP3_LYRICS', songId: null, title: '', artist: '', lines: null, coverDataUrl: null }); });
+  connections.forEach(c => { if(c.open) c.send({ type: 'MP3_LYRICS', songId: null, code: '', title: '', artist: '', lines: null, coverDataUrl: null }); });
 }
 
 function loadMp3LyricsForSong(song){
@@ -1908,16 +1916,29 @@ function loadMp3LyricsForSong(song){
   currentLyricLineIndex = -1;
   document.getElementById('mp3-now-playing').style.display = 'flex';
   document.getElementById('mp3-lyrics').style.display = 'none';
+  document.getElementById('mp3-title-row').style.display = 'none';
+  document.getElementById('mp3-artist-row').style.display = 'none';
   document.getElementById('mp3-bg').classList.remove('has-cover');
   document.getElementById('mp3-bg').style.backgroundImage = '';
-  document.getElementById('mp3-title').textContent = song.title;
+  // "รหัสเพลง" always shows the filename-derived title — for files where the filename already IS a
+  // real song name (not an actual code), this row just ends up showing that name, which is fine; the
+  // "ชื่อเพลง"/"นักร้อง" rows below only appear once the embedded metadata actually decodes successfully.
+  document.getElementById('mp3-code').textContent = song.title;
+  document.getElementById('mp3-title').textContent = '';
   document.getElementById('mp3-artist').textContent = '';
   console.log('[MP3 Lyrics] Loading lyrics for:', song.title, '| localFileId:', song.localFileId, '| file in memory:', localFiles.has(song.localFileId));
   getMp3Lyrics(song).then(result => {
-    console.log('[MP3 Lyrics] Result for', song.title, ':', result ? { hasLines: !!result.lines, lineCount: result.lines?.length, hasCover: !!result.coverDataUrl } : 'null (no lyrics/cover found)');
+    console.log('[MP3 Lyrics] Result for', song.title, ':', result ? { hasLines: !!result.lines, lineCount: result.lines?.length, hasCover: !!result.coverDataUrl, decodedTitle: result.title, artist: result.artist } : 'null (no lyrics/cover found)');
     if(myToken !== mp3LyricsLoadToken) { console.log('[MP3 Lyrics] Discarding result — a different song loaded meanwhile.'); return; }
     currentMp3Lyrics = result;
-    if(result && result.artist) document.getElementById('mp3-artist').textContent = result.artist;
+    if(result && result.title){
+      document.getElementById('mp3-title').textContent = result.title;
+      document.getElementById('mp3-title-row').style.display = 'flex';
+    }
+    if(result && result.artist){
+      document.getElementById('mp3-artist').textContent = result.artist;
+      document.getElementById('mp3-artist-row').style.display = 'flex';
+    }
     if(result && result.coverDataUrl){
       document.getElementById('mp3-bg').style.backgroundImage = `url("${result.coverDataUrl}")`;
       document.getElementById('mp3-bg').classList.add('has-cover');
@@ -1933,7 +1954,8 @@ function broadcastMp3Lyrics(song, result){
   const payload = {
     type: 'MP3_LYRICS',
     songId: song.id,
-    title: song.title,
+    code: song.title,
+    title: result?.title || '',
     artist: result?.artist || '',
     lines: result?.lines || null,
     coverDataUrl: result?.coverDataUrl || null
@@ -1987,6 +2009,71 @@ function renderMp3Lyrics(){
   });
 }
 setInterval(renderMp3Lyrics, 100);
+
+/* ---------------- MP3 progress bar + seeking ---------------- */
+function formatMp3Time(seconds){
+  seconds = Math.max(0, Math.floor(seconds || 0));
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m + ':' + String(s).padStart(2, '0');
+}
+function updateMp3Progress(){
+  const wrap = document.getElementById('mp3-progress-wrap');
+  if(document.getElementById('mp3-now-playing').style.display === 'none'){ wrap.style.display = 'none'; return; }
+  const song = currentSong();
+  if(!song || song.source !== 'local' || !localPlayer || !localPlayer.duration){ wrap.style.display = 'none'; return; }
+  wrap.style.display = 'flex';
+  if(mp3Seeking) return; // don't fight the user's drag with the playback position
+  const { currentTime, duration } = getPlaybackTimes();
+  const pct = duration ? Math.min(100, (currentTime / duration) * 100) : 0;
+  document.getElementById('mp3-progress-fill').style.width = pct + '%';
+  document.getElementById('mp3-progress-handle').style.left = pct + '%';
+  document.getElementById('mp3-time-current').textContent = formatMp3Time(currentTime);
+  document.getElementById('mp3-time-total').textContent = formatMp3Time(duration);
+}
+setInterval(updateMp3Progress, 500);
+
+let mp3Seeking = false;
+function seekMp3ToClientX(clientX){
+  const track = document.getElementById('mp3-progress-track');
+  const rect = track.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  document.getElementById('mp3-progress-fill').style.width = (pct * 100) + '%';
+  document.getElementById('mp3-progress-handle').style.left = (pct * 100) + '%';
+  if(localPlayer && localPlayer.duration){
+    document.getElementById('mp3-time-current').textContent = formatMp3Time(pct * localPlayer.duration);
+    return pct * localPlayer.duration;
+  }
+  return null;
+}
+function commitMp3Seek(clientX){
+  const t = seekMp3ToClientX(clientX);
+  if(t !== null && localPlayer) localPlayer.currentTime = t;
+}
+(function wireMp3ProgressSeek(){
+  const track = document.getElementById('mp3-progress-track');
+  track.addEventListener('mousedown', (e) => { mp3Seeking = true; seekMp3ToClientX(e.clientX); });
+  document.addEventListener('mousemove', (e) => { if(mp3Seeking) seekMp3ToClientX(e.clientX); });
+  document.addEventListener('mouseup', (e) => { if(mp3Seeking){ mp3Seeking = false; commitMp3Seek(e.clientX); } });
+  track.addEventListener('touchstart', (e) => { mp3Seeking = true; seekMp3ToClientX(e.touches[0].clientX); }, { passive: true });
+  document.addEventListener('touchmove', (e) => { if(mp3Seeking) seekMp3ToClientX(e.touches[0].clientX); }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if(mp3Seeking){
+      mp3Seeking = false;
+      const touch = e.changedTouches && e.changedTouches[0];
+      if(touch) commitMp3Seek(touch.clientX);
+    }
+  });
+})();
+// Keep Screen 2's lyric sync from lagging up to 4s behind after a manual seek — nudge it immediately.
+if(localPlayer){
+  localPlayer.addEventListener('seeked', () => {
+    const song = currentSong();
+    if(song){
+      connections.forEach(conn => { if(conn.open) conn.send({ type: 'TIME_SYNC', currentId: state.currentId, currentTime: localPlayer.currentTime }); });
+    }
+  });
+}
 
 function scanLocalFolder(fileList){
   const audioExts = /\.(mp3|mp4|m4a|wav|ogg|oga|webm|mov|avi|flac|aac|wma)$/i;

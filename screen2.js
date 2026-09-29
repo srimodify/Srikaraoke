@@ -36,7 +36,7 @@ let myChords = {};
 /* ---------------- MP3 now-playing screen (mirrors the host's word-by-word lyric highlight) ----------------
    Screen 2 has no access to the host's local audio file at all — everything shown here (lyrics, cover,
    title/artist, and the timing to drive the highlight) is sent over from the host. */
-let s2Mp3Data = null; // { songId, title, artist, lines, coverDataUrl } | null
+let s2Mp3Data = null; // { songId, code, title, artist, lines, coverDataUrl } | null
 let s2LocalTimeSync = { syncedAt: 0, syncedTime: 0, active: false };
 let s2CurrentLyricLineIndex = -1;
 function setS2LocalTimeSync(songTimeSec){
@@ -483,8 +483,13 @@ function renderDisplay(){
       // karaoke screen the host itself displays, instead of the generic "can't play this here" note.
       idle.style.display = 'none';
       document.getElementById('mp3-now-playing').style.display = 'flex';
-      document.getElementById('mp3-title').textContent = s2Mp3Data.title || song.title;
-      document.getElementById('mp3-artist').textContent = s2Mp3Data.artist || '';
+      document.getElementById('mp3-code').textContent = s2Mp3Data.code || song.title;
+      const titleRow = document.getElementById('mp3-title-row');
+      const artistRow = document.getElementById('mp3-artist-row');
+      if(s2Mp3Data.title){ document.getElementById('mp3-title').textContent = s2Mp3Data.title; titleRow.style.display = 'flex'; }
+      else { titleRow.style.display = 'none'; }
+      if(s2Mp3Data.artist){ document.getElementById('mp3-artist').textContent = s2Mp3Data.artist; artistRow.style.display = 'flex'; }
+      else { artistRow.style.display = 'none'; }
       const bg = document.getElementById('mp3-bg');
       if(s2Mp3Data.coverDataUrl){ bg.style.backgroundImage = `url("${s2Mp3Data.coverDataUrl}")`; bg.classList.add('has-cover'); }
       else { bg.style.backgroundImage = ''; bg.classList.remove('has-cover'); }

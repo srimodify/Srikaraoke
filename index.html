@@ -265,15 +265,24 @@ main.queue-hidden #queue-panel{display:none;}
 .mp3-bg.has-cover{opacity:1;}
 .mp3-info{
   position:relative;z-index:1;
-  display:flex;flex-direction:column;align-items:center;gap:6px;
+  display:flex;flex-direction:column;align-items:center;gap:5px;
   text-align:center;max-width:90%;min-width:0;
 }
-.mp3-title{
-  font-family:'Kanit',sans-serif;font-weight:700;font-size:clamp(22px,3.4vw,36px);
-  color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.8);
+.mp3-info-row{
+  display:flex;align-items:baseline;gap:8px;justify-content:center;
+  max-width:100%;min-width:0;
+}
+.mp3-info-label{
+  font-size:12px;color:var(--text-dim);flex-shrink:0;
+  text-shadow:0 1px 6px rgba(0,0,0,.8);
+}
+.mp3-info-value{
+  font-family:'Kanit',sans-serif;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.8);
   max-width:100%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.mp3-artist{font-size:15px;color:var(--text-dim);text-shadow:0 1px 6px rgba(0,0,0,.8);}
+.mp3-row-code .mp3-info-value{font-weight:700;font-size:clamp(20px,3vw,32px);}
+.mp3-row-title .mp3-info-value{font-weight:600;font-size:clamp(15px,2vw,20px);color:var(--gold);}
+.mp3-row-artist .mp3-info-value{font-weight:400;font-size:14px;color:var(--text-dim);}
 .mp3-lyrics{
   position:relative;z-index:1;
   display:flex;flex-direction:column;align-items:center;gap:14px;
@@ -302,6 +311,37 @@ main.queue-hidden #queue-panel{display:none;}
   clip-path:inset(0 100% 0 0);
 }
 .lyric-line-next .lyric-word-base{-webkit-text-stroke:1.5px #000;}
+.mp3-progress-wrap{
+  position:relative;z-index:1;
+  display:flex;align-items:center;gap:10px;
+  width:100%;max-width:560px;
+  padding:0 20px;box-sizing:border-box;
+}
+.mp3-time{font-size:13px;color:var(--text-dim);text-shadow:0 1px 6px rgba(0,0,0,.8);flex-shrink:0;min-width:36px;}
+#mp3-time-total{text-align:right;}
+.mp3-progress-track{
+  position:relative;flex:1;height:20px;
+  display:flex;align-items:center;
+  cursor:pointer;
+  touch-action:none;
+}
+.mp3-progress-track::before{
+  content:'';position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+  height:5px;border-radius:999px;background:rgba(255,255,255,.25);
+}
+.mp3-progress-fill{
+  position:absolute;left:0;top:50%;transform:translateY(-50%);
+  height:5px;border-radius:999px;background:var(--gold);
+  width:0%;pointer-events:none;
+}
+.mp3-progress-handle{
+  position:absolute;top:50%;left:0%;
+  width:14px;height:14px;border-radius:50%;
+  background:var(--gold);border:2px solid #fff;
+  transform:translate(-50%,-50%);
+  box-shadow:0 1px 4px rgba(0,0,0,.5);
+  pointer-events:none;
+}
 #loading-overlay{
   position:absolute;inset:0;
   z-index:4;
@@ -1336,12 +1376,30 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
         <div id="mp3-now-playing" style="display:none;">
           <div class="mp3-bg" id="mp3-bg"></div>
           <div class="mp3-info">
-            <div class="mp3-title" id="mp3-title"></div>
-            <div class="mp3-artist" id="mp3-artist"></div>
+            <div class="mp3-info-row mp3-row-code">
+              <span class="mp3-info-label">รหัสเพลง</span>
+              <span class="mp3-info-value" id="mp3-code"></span>
+            </div>
+            <div class="mp3-info-row mp3-row-title" id="mp3-title-row" style="display:none;">
+              <span class="mp3-info-label">ชื่อเพลง</span>
+              <span class="mp3-info-value" id="mp3-title"></span>
+            </div>
+            <div class="mp3-info-row mp3-row-artist" id="mp3-artist-row" style="display:none;">
+              <span class="mp3-info-label">นักร้อง</span>
+              <span class="mp3-info-value" id="mp3-artist"></span>
+            </div>
           </div>
           <div class="mp3-lyrics" id="mp3-lyrics" style="display:none;">
             <div class="lyric-line lyric-line-current" id="lyric-line-current"></div>
             <div class="lyric-line lyric-line-next" id="lyric-line-next"></div>
+          </div>
+          <div class="mp3-progress-wrap" id="mp3-progress-wrap" style="display:none;">
+            <span class="mp3-time" id="mp3-time-current">0:00</span>
+            <div class="mp3-progress-track" id="mp3-progress-track">
+              <div class="mp3-progress-fill" id="mp3-progress-fill"></div>
+              <div class="mp3-progress-handle" id="mp3-progress-handle"></div>
+            </div>
+            <span class="mp3-time" id="mp3-time-total">0:00</span>
           </div>
         </div>
         <div id="loading-overlay" style="display:none;">
