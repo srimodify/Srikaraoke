@@ -1740,11 +1740,21 @@ async function inflateZlib(bytes){
 function parseLyricXml(xmlString){
   try{
     const doc = new DOMParser().parseFromString(xmlString, 'text/xml');
-    if(doc.querySelector('parsererror')) return null;
+    const perr = doc.querySelector('parsererror');
+    if(perr){
+      console.warn('[MP3 Lyrics] XML failed to parse:', perr.textContent?.slice(0, 300));
+      console.log('[MP3 Lyrics] Raw XML that failed (first 600 chars):', JSON.stringify(xmlString.slice(0, 600)));
+      return null;
+    }
+    console.log('[MP3 Lyrics] XML root element:', doc.documentElement?.nodeName);
     const info = doc.querySelector('INFO');
     const title = info?.querySelector('TITLE')?.textContent?.trim() || '';
     const artist = info?.querySelector('ARTIST')?.textContent?.trim() || '';
     const lineEls = doc.querySelectorAll('LYRIC > LINE');
+    console.log('[MP3 Lyrics] LYRIC > LINE elements found:', lineEls.length);
+    if(lineEls.length === 0){
+      console.log('[MP3 Lyrics] No LINE elements matched — raw XML for inspection (first 900 chars):', JSON.stringify(xmlString.slice(0, 900)));
+    }
     const lines = [];
     lineEls.forEach(lineEl => {
       const words = [];
@@ -1756,7 +1766,10 @@ function parseLyricXml(xmlString){
       if(words.length) lines.push({ words, startTime: words[0].time });
     });
     return lines.length ? { lines, title, artist } : null;
-  }catch(e){ return null; }
+  }catch(e){
+    console.error('[MP3 Lyrics] parseLyricXml threw an exception:', e);
+    return null;
+  }
 }
 async function extractMp3Lyrics(file){
   try{
