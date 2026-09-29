@@ -239,6 +239,7 @@ function loadSongIntoPlayer(song){
       return;
     }
     if(ytWrap) ytWrap.style.display = 'none';
+    if(ytPlayer){ try{ ytPlayer.stopVideo(); }catch(e){} } // otherwise a YouTube song playing before this keeps its audio going underneath
     if(localPlayer){
       localPlayer.style.display = 'block';
       const url = URL.createObjectURL(file);
