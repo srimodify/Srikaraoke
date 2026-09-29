@@ -1763,12 +1763,34 @@ async function extractMp3Lyrics(file){
       const extSize = majorVersion >= 4 ? synchsafeInt(view, offset) : view.getUint32(offset, false);
       offset += extSize + (majorVersion >= 4 ? 0 : 4);
     }
+    // Frame sizes are supposed to be plain 32-bit big-endian in ID3v2.3 and synchsafe (7 bits/byte) in
+    // ID3v2.4 — but some real-world tagging tools (including whatever wrote files like this one) label
+    // their output as v2.3 while actually writing v2.4-style synchsafe sizes anyway. Rather than trust
+    // the declared version blindly (which silently reads the frame boundary wrong, corrupting
+    // everything read afterward), check whether the resulting boundary actually lands on a sane next
+    // frame ID, and fall back to the other interpretation if it doesn't.
+    function frameBoundaryLooksValid(startOffset, size){
+      if(size <= 0) return false;
+      const nextOffset = startOffset + 10 + size;
+      // Past the tag's own declared boundary is never valid, even if it's still within the file overall
+      // (the rest of the file past the tag is the actual MP3 audio stream, not more ID3 frames).
+      if(nextOffset > end || nextOffset > buf.byteLength - 4) return false;
+      if(nextOffset >= end - 10) return true; // right at the tag's end (likely just padding) — plausible
+      const nextId = String.fromCharCode(view.getUint8(nextOffset), view.getUint8(nextOffset + 1), view.getUint8(nextOffset + 2), view.getUint8(nextOffset + 3));
+      return /^[A-Z0-9]{4}$/.test(nextId) || nextId === '\u0000\u0000\u0000\u0000';
+    }
     let lyricsBytes = null;
     let coverBytes = null, coverMime = null;
     while(offset < end - 10){
       const frameId = String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3));
       if(frameId === '\u0000\u0000\u0000\u0000') break;
-      const frameSize = majorVersion >= 4 ? synchsafeInt(view, offset + 4) : view.getUint32(offset + 4, false);
+      if(!/^[A-Z0-9]{4}$/.test(frameId)) break; // hit padding or garbage — stop here
+      const sizeDeclared = majorVersion >= 4 ? synchsafeInt(view, offset + 4) : view.getUint32(offset + 4, false);
+      const sizeAlternate = majorVersion >= 4 ? view.getUint32(offset + 4, false) : synchsafeInt(view, offset + 4);
+      let frameSize = sizeDeclared;
+      if(!frameBoundaryLooksValid(offset, frameSize) && frameBoundaryLooksValid(offset, sizeAlternate)){
+        frameSize = sizeAlternate; // this file's writer used the size format for the other ID3 version
+      }
       if(frameSize <= 0 || offset + 10 + frameSize > buf.byteLength) break;
       const frameStart = offset + 10;
       if(frameId === 'TEXT' && !lyricsBytes){
@@ -1802,7 +1824,13 @@ async function extractMp3Lyrics(file){
     console.log('[MP3 Lyrics] TEXT frame with lyric data found:', !!lyricsBytes, '| APIC (cover) frame found:', !!coverBytes);
     let parsed = null;
     if(lyricsBytes){
-      const asLatin1 = new TextDecoder('latin1').decode(lyricsBytes);
+      // NOT TextDecoder('latin1') — per the WHATWG Encoding spec, browsers alias that label to
+      // windows-1252, which maps a handful of byte values (0x81, 0x8D, 0x8F, 0x90, 0x9D) to the
+      // replacement character U+FFFD instead of passing them through — corrupting the base64 payload
+      // if any of those bytes happen to appear in it, and making atob() throw. This manual conversion
+      // is a true 1:1 byte-to-code-point mapping, which is what a raw byte string actually needs.
+      let asLatin1 = '';
+      for(let i = 0; i < lyricsBytes.length; i++) asLatin1 += String.fromCharCode(lyricsBytes[i]);
       if(asLatin1.startsWith('LyrHdr1')){
         try{
           const b64 = asLatin1.slice(7);

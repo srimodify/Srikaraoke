@@ -37,13 +37,28 @@ self.addEventListener('fetch', (event) => {
   if(req.method !== 'GET' || new URL(req.url).origin !== self.location.origin){
     return;
   }
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      const network = fetch(req).then((res) => {
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, res.clone()));
-        return res;
-      }).catch(() => cached);
-      return cached || network;
-    })
-  );
+  event.respondWith((async () => {
+    const cached = await caches.match(req);
+    if(cached){
+      // Serve the cached copy immediately, and refresh the cache in the background for next time —
+      // cloned right away, before anything else can touch the body, to avoid "body already used".
+      fetch(req).then((res) => {
+        if(res && res.ok){
+          const freshCopy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, freshCopy)).catch(() => {});
+        }
+      }).catch(() => {});
+      return cached;
+    }
+    try{
+      const res = await fetch(req);
+      if(res && res.ok){
+        const freshCopy = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(req, freshCopy)).catch(() => {});
+      }
+      return res;
+    }catch(e){
+      return cached || Response.error();
+    }
+  })());
 });
