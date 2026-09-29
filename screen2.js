@@ -32,6 +32,63 @@ let ytReady = false;
 let myQueue = [];
 let myCurrentId = null;
 let myChords = {};
+
+/* ---------------- MP3 now-playing screen (mirrors the host's word-by-word lyric highlight) ----------------
+   Screen 2 has no access to the host's local audio file at all — everything shown here (lyrics, cover,
+   title/artist, and the timing to drive the highlight) is sent over from the host. */
+let s2Mp3Data = null; // { songId, title, artist, lines, coverDataUrl } | null
+let s2LocalTimeSync = { syncedAt: 0, syncedTime: 0, active: false };
+let s2CurrentLyricLineIndex = -1;
+function setS2LocalTimeSync(songTimeSec){
+  s2LocalTimeSync = { syncedAt: Date.now(), syncedTime: songTimeSec, active: true };
+}
+function getS2EstimatedTime(){
+  if(!s2LocalTimeSync.active) return 0;
+  return s2LocalTimeSync.syncedTime + (Date.now() - s2LocalTimeSync.syncedAt) / 1000;
+}
+function s2BuildLyricLineWords(container, line){
+  container.innerHTML = '';
+  if(!line) return;
+  line.words.forEach(word => {
+    const wrap = document.createElement('span');
+    wrap.className = 'lyric-word';
+    const base = document.createElement('span');
+    base.className = 'lyric-word-base';
+    base.textContent = word.text;
+    const fill = document.createElement('span');
+    fill.className = 'lyric-word-fill';
+    fill.textContent = word.text;
+    wrap.appendChild(base);
+    wrap.appendChild(fill);
+    container.appendChild(wrap);
+  });
+}
+function renderS2Mp3Lyrics(){
+  if(!s2Mp3Data || !s2Mp3Data.lines || document.getElementById('mp3-now-playing').style.display === 'none') return;
+  const curMs = getS2EstimatedTime() * 1000;
+  const lines = s2Mp3Data.lines;
+  let idx = -1;
+  for(let i = 0; i < lines.length; i++){
+    if(lines[i].startTime <= curMs) idx = i; else break;
+  }
+  if(idx !== s2CurrentLyricLineIndex){
+    s2CurrentLyricLineIndex = idx;
+    s2BuildLyricLineWords(document.getElementById('lyric-line-current'), idx >= 0 ? lines[idx] : null);
+    s2BuildLyricLineWords(document.getElementById('lyric-line-next'), idx + 1 < lines.length ? lines[idx + 1] : null);
+  }
+  if(idx < 0) return;
+  const line = lines[idx];
+  const nextLineStart = idx + 1 < lines.length ? lines[idx + 1].startTime : line.words[line.words.length - 1].time + 2000;
+  const fillEls = document.querySelectorAll('#lyric-line-current .lyric-word-fill');
+  line.words.forEach((word, i) => {
+    const wordEnd = i + 1 < line.words.length ? line.words[i + 1].time : nextLineStart;
+    let progress = (curMs - word.time) / Math.max(1, wordEnd - word.time);
+    progress = Math.max(0, Math.min(1, progress));
+    const el = fillEls[i];
+    if(el) el.style.clipPath = `inset(0 ${(1 - progress) * 100}% 0 0)`;
+  });
+}
+setInterval(renderS2Mp3Lyrics, 100);
 function songChordKey(song){
   if(!song) return null;
   return song.source === 'local' ? 'local:' + song.localFileId : 'yt:' + song.videoId;
@@ -139,6 +196,7 @@ function handleHostMessage(msg){
     myQueue = msg.queue || [];
     myCurrentId = msg.currentId;
     applyVideoState(msg.currentId, msg.currentTime);
+    if(typeof msg.currentTime === 'number') setS2LocalTimeSync(msg.currentTime);
     renderDisplay();
     return;
   }
@@ -149,6 +207,10 @@ function handleHostMessage(msg){
         if(drift > 2.5) ytPlayer.seekTo(msg.currentTime, true);
       }catch(e){}
     }
+    // Also the only timing source for local MP3s — Screen 2 has no file of its own to read a clock
+    // from, so this periodic ping (plus local extrapolation between pings) is what drives the
+    // word-by-word lyric highlight staying roughly in step with the host.
+    if(msg.currentId === myCurrentId) setS2LocalTimeSync(msg.currentTime);
     return;
   }
   if(msg.type === 'AUDIO_OUTPUT'){
@@ -161,6 +223,11 @@ function handleHostMessage(msg){
   }
   if(msg.type === 'PLAY_SOUND_EFFECT'){
     playSoundEffectOnScreen2(msg.file);
+    return;
+  }
+  if(msg.type === 'MP3_LYRICS'){
+    s2Mp3Data = msg.songId ? msg : null;
+    renderDisplay();
     return;
   }
   if(msg.type === 'SCORE_ANNOUNCE'){
@@ -400,6 +467,23 @@ function renderDisplay(){
   if(song) hasEverPlayed = true;
 
   if(song && song.source === 'local'){
+    if(s2Mp3Data && s2Mp3Data.songId === song.id){
+      // The host sent over lyrics/cover/timing for this exact song — show the same word-by-word
+      // karaoke screen the host itself displays, instead of the generic "can't play this here" note.
+      idle.style.display = 'none';
+      document.getElementById('mp3-now-playing').style.display = 'flex';
+      document.getElementById('mp3-title').textContent = s2Mp3Data.title || song.title;
+      document.getElementById('mp3-artist').textContent = s2Mp3Data.artist || '';
+      const bg = document.getElementById('mp3-bg');
+      if(s2Mp3Data.coverDataUrl){ bg.style.backgroundImage = `url("${s2Mp3Data.coverDataUrl}")`; bg.classList.add('has-cover'); }
+      else { bg.style.backgroundImage = ''; bg.classList.remove('has-cover'); }
+      document.getElementById('mp3-lyrics').style.display = s2Mp3Data.lines ? 'flex' : 'none';
+      npBar.style.display = 'block';
+      updateNowPlayingMarquee(song);
+      nextBar.style.display = 'none';
+      return;
+    }
+    document.getElementById('mp3-now-playing').style.display = 'none';
     // Local files only exist on the host's own file system — Screen 2 can't read or play them, so it
     // shows a friendly placeholder with the song title while the audio/video plays on the host itself.
     idle.style.display = 'flex';
@@ -413,6 +497,7 @@ function renderDisplay(){
     nextBar.style.display = 'none'; // no reliable playback-position info available for local files here
     return;
   }
+  document.getElementById('mp3-now-playing').style.display = 'none';
   idleTitle.innerHTML = 'รอเพลงถัดไป... <span>Sri Karaoke</span>';
   idleDesc.textContent = 'ยังไม่มีเพลงเล่นอยู่ตอนนี้ — เพลงจะขึ้นแสดงที่นี่โดยอัตโนมัติ';
 

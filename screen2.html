@@ -82,6 +82,64 @@ input,button{font-family:inherit;}
 #d-player-wrap{position:absolute;inset:0;}
 #d-player{width:100%;height:100%;position:relative;z-index:0;}
 
+/* ---------- MP3 now-playing screen (mirrors the host) ---------- */
+#mp3-now-playing{
+  position:absolute;inset:0;
+  z-index:2;
+  overflow:hidden;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:28px;
+  padding:24px;box-sizing:border-box;
+  background:radial-gradient(circle at 50% 35%, #241C42 0%, #0F0C1E 70%);
+}
+.mp3-bg{
+  position:absolute;inset:-20px;
+  background-size:cover;background-position:center;
+  filter:blur(28px) brightness(.45);
+  transform:scale(1.1);
+  opacity:0;
+  transition:opacity .4s ease;
+}
+.mp3-bg.has-cover{opacity:1;}
+.mp3-info{
+  position:relative;z-index:1;
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  text-align:center;max-width:90%;min-width:0;
+}
+.mp3-title{
+  font-family:'Kanit',sans-serif;font-weight:700;font-size:clamp(22px,3.4vw,36px);
+  color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.8);
+  max-width:100%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.mp3-artist{font-size:15px;color:var(--text-dim);text-shadow:0 1px 6px rgba(0,0,0,.8);}
+.mp3-lyrics{
+  position:relative;z-index:1;
+  display:flex;flex-direction:column;align-items:center;gap:14px;
+  width:100%;max-width:1000px;
+  padding:0 16px;box-sizing:border-box;
+}
+.lyric-line{
+  display:flex;flex-wrap:wrap;justify-content:center;
+  font-family:'Kanit',sans-serif;font-weight:700;
+  line-height:1.5;
+}
+.lyric-line-current{font-size:clamp(24px,4vw,44px);}
+.lyric-line-next{font-size:clamp(16px,2.6vw,28px);opacity:.55;}
+.lyric-word{position:relative;display:inline-block;white-space:pre;}
+.lyric-word-base{
+  color:#eee;
+  -webkit-text-stroke:2px #000;
+  paint-order:stroke fill;
+}
+.lyric-word-fill{
+  position:absolute;top:0;left:0;
+  color:#3b7dff;
+  -webkit-text-stroke:2px #fff;
+  paint-order:stroke fill;
+  white-space:pre;
+  clip-path:inset(0 100% 0 0);
+}
+.lyric-line-next .lyric-word-base{-webkit-text-stroke:1.5px #000;}
 #loading-overlay{
   position:absolute;inset:0;
   z-index:4;
@@ -319,6 +377,17 @@ input,button{font-family:inherit;}
   <div id="d-player-wrap">
     <div id="d-player"></div>
     <audio id="sfx-player"></audio>
+    <div id="mp3-now-playing" style="display:none;">
+      <div class="mp3-bg" id="mp3-bg"></div>
+      <div class="mp3-info">
+        <div class="mp3-title" id="mp3-title"></div>
+        <div class="mp3-artist" id="mp3-artist"></div>
+      </div>
+      <div class="mp3-lyrics" id="mp3-lyrics" style="display:none;">
+        <div class="lyric-line lyric-line-current" id="lyric-line-current"></div>
+        <div class="lyric-line lyric-line-next" id="lyric-line-next"></div>
+      </div>
+    </div>
     <div id="loading-overlay" style="display:none;">
       <div class="loading-blur-bg" id="loading-blur-bg"></div>
       <div class="loading-content">

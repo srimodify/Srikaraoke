@@ -249,6 +249,12 @@ function loadSongIntoPlayer(song){
       localPlayer.play().catch(() => {});
     }
     state.isPlaying = true;
+    if(isAudioOnlyFile(file.name)){
+      localPlayer.style.display = 'none'; // no visual content — the MP3 screen covers this space instead
+      loadMp3LyricsForSong(song);
+    } else {
+      hideMp3NowPlaying();
+    }
   } else {
     if(localPlayer){ localPlayer.pause(); localPlayer.removeAttribute('src'); localPlayer.load(); localPlayer.style.display = 'none'; }
     if(ytWrap) ytWrap.style.display = '';
@@ -257,6 +263,7 @@ function loadSongIntoPlayer(song){
       ytPlayer.setPlaybackRate(state.tempo);
       state.isPlaying = true;
     }
+    hideMp3NowPlaying();
   }
   applyAudioOutput(); // final step: makes sure the "muted while loading" state actually takes effect,
                        // overriding whatever volume/mute the branch above just set
@@ -900,6 +907,7 @@ function stopPlayer(){
   if(ytWrap) ytWrap.style.display = '';
   state.isPlaying = false;
   hideLoadingOverlay();
+  hideMp3NowPlaying();
 }
 
 /* ---------------- Tempo (speed) — allowed from host AND remote ---------------- */
@@ -1187,6 +1195,10 @@ function initPeer(){
             conn.send({ type: 'LOCAL_LIBRARY', localLibrary: state.localLibrary });
             conn.send({ type: 'CHORDS_LIBRARY', chords: state.chords });
             conn.send({ type: 'SOUND_EFFECTS', effects: soundEffects });
+            if(currentMp3Lyrics){
+              const song = currentSong();
+              if(song) conn.send({ type: 'MP3_LYRICS', songId: song.id, title: song.title, artist: currentMp3Lyrics.artist || '', lines: currentMp3Lyrics.lines || null, coverDataUrl: currentMp3Lyrics.coverDataUrl || null });
+            }
           } else {
             conn.send({ type: 'JOIN_REJECTED' });
             setTimeout(() => { try{ conn.close(); }catch(e){} }, 300);
@@ -1303,10 +1315,16 @@ function broadcastState(){
 }
 // A lighter periodic ping so long-idle screens (mainly Screen 2, which plays its own copy of the
 // video independently) stay roughly in sync without re-sending the whole queue/playlists repeatedly.
-// Only meaningful for YouTube songs — Screen 2 can't play local files, so there's nothing to sync then.
+// Meaningful for YouTube songs, and for local MP3s with embedded lyrics (Screen 2 needs this timing to
+// drive its own word-by-word highlight even though it has no audio file to play) — but not local video
+// files, since Screen 2 can't play those at all and has nothing to sync there.
 setInterval(() => {
   const song = currentSong();
-  if(!song || song.source === 'local' || connections.length === 0) return;
+  if(!song || connections.length === 0) return;
+  if(song.source === 'local'){
+    const file = localFiles.get(song.localFileId);
+    if(!file || !isAudioOnlyFile(file.name)) return;
+  }
   const { currentTime: t } = getPlaybackTimes();
   connections.forEach(conn => {
     if(conn.open) conn.send({ type: 'TIME_SYNC', currentId: state.currentId, currentTime: t });
@@ -1681,10 +1699,240 @@ async function doHostSearch(){
 }
 
 /* ---------------- Local music library (host only — files never leave this device) ---------------- */
+/* ---------------- MP3 embedded lyrics (ID3 "LyrHdr1" format) ----------------
+   Some Thai karaoke MP3 files embed word-by-word synced lyrics (and sometimes cover art) inside a
+   custom ID3v2 frame. The lyrics are stored as: a "LyrHdr1" prefix, then base64, then zlib-compressed
+   XML text (itself encoded as Thai codepage 874, not UTF-8 despite what its own XML header claims).
+   Everything here runs entirely in the browser — the file never leaves this device. */
+const AUDIO_ONLY_EXT = /\.(mp3|wav|m4a|aac|flac|oga|wma)$/i;
+function isAudioOnlyFile(name){ return AUDIO_ONLY_EXT.test(name || ''); }
+
+function synchsafeInt(view, offset){
+  return (view.getUint8(offset) << 21) | (view.getUint8(offset + 1) << 14) | (view.getUint8(offset + 2) << 7) | view.getUint8(offset + 3);
+}
+function bytesToBase64(bytes){
+  let binary = '';
+  const chunkSize = 0x8000;
+  for(let i = 0; i < bytes.length; i += chunkSize){
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+async function inflateZlib(bytes){
+  // Native browser decompression (Chrome 80+, Firefox 113+, Safari 16.4+) — no external library needed.
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+  const buf = await new Response(stream).arrayBuffer();
+  return new Uint8Array(buf);
+}
+function parseLyricXml(xmlString){
+  try{
+    const doc = new DOMParser().parseFromString(xmlString, 'text/xml');
+    if(doc.querySelector('parsererror')) return null;
+    const info = doc.querySelector('INFO');
+    const title = info?.querySelector('TITLE')?.textContent?.trim() || '';
+    const artist = info?.querySelector('ARTIST')?.textContent?.trim() || '';
+    const lineEls = doc.querySelectorAll('LYRIC > LINE');
+    const lines = [];
+    lineEls.forEach(lineEl => {
+      const words = [];
+      lineEl.querySelectorAll('WORD').forEach(wordEl => {
+        const t = parseInt(wordEl.querySelector('TIME')?.textContent || '0', 10);
+        const text = wordEl.querySelector('TEXT')?.textContent || '';
+        words.push({ time: t, text });
+      });
+      if(words.length) lines.push({ words, startTime: words[0].time });
+    });
+    return lines.length ? { lines, title, artist } : null;
+  }catch(e){ return null; }
+}
+async function extractMp3Lyrics(file){
+  try{
+    const buf = await file.arrayBuffer();
+    const view = new DataView(buf);
+    if(buf.byteLength < 10 || view.getUint8(0) !== 0x49 || view.getUint8(1) !== 0x44 || view.getUint8(2) !== 0x33) return null; // "ID3"
+    const majorVersion = view.getUint8(3);
+    const flags = view.getUint8(5);
+    const tagSize = synchsafeInt(view, 6);
+    let offset = 10;
+    const end = Math.min(10 + tagSize, buf.byteLength);
+    if(flags & 0x40){ // extended header present — skip over it
+      const extSize = majorVersion >= 4 ? synchsafeInt(view, offset) : view.getUint32(offset, false);
+      offset += extSize + (majorVersion >= 4 ? 0 : 4);
+    }
+    let lyricsBytes = null;
+    let coverBytes = null, coverMime = null;
+    while(offset < end - 10){
+      const frameId = String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3));
+      if(frameId === '\u0000\u0000\u0000\u0000') break;
+      const frameSize = majorVersion >= 4 ? synchsafeInt(view, offset + 4) : view.getUint32(offset + 4, false);
+      if(frameSize <= 0 || offset + 10 + frameSize > buf.byteLength) break;
+      const frameStart = offset + 10;
+      if(frameId === 'TEXT' && !lyricsBytes){
+        const encoding = view.getUint8(frameStart);
+        if(encoding === 0){ // Latin-1 — a raw byte-per-character mapping, exactly what the base64 payload needs
+          lyricsBytes = new Uint8Array(buf, frameStart + 1, frameSize - 1);
+        }
+      }
+      if(frameId === 'APIC' && !coverBytes){
+        try{
+          let p = frameStart;
+          const frameEnd = frameStart + frameSize;
+          const encoding = view.getUint8(p); p += 1;
+          let mimeEnd = p;
+          while(mimeEnd < frameEnd && view.getUint8(mimeEnd) !== 0) mimeEnd++;
+          coverMime = new TextDecoder('latin1').decode(new Uint8Array(buf, p, mimeEnd - p)) || 'image/jpeg';
+          p = mimeEnd + 1;
+          p += 1; // picture type byte
+          if(encoding === 1 || encoding === 2){
+            while(p < frameEnd - 1 && !(view.getUint8(p) === 0 && view.getUint8(p + 1) === 0)) p += 2;
+            p += 2;
+          } else {
+            while(p < frameEnd && view.getUint8(p) !== 0) p++;
+            p += 1;
+          }
+          coverBytes = new Uint8Array(buf, p, Math.max(0, frameEnd - p));
+        }catch(e){ coverBytes = null; }
+      }
+      offset = frameStart + frameSize;
+    }
+    let parsed = null;
+    if(lyricsBytes){
+      const asLatin1 = new TextDecoder('latin1').decode(lyricsBytes);
+      if(asLatin1.startsWith('LyrHdr1')){
+        const b64 = asLatin1.slice(7);
+        const binStr = atob(b64);
+        const compressed = new Uint8Array(binStr.length);
+        for(let i = 0; i < binStr.length; i++) compressed[i] = binStr.charCodeAt(i);
+        const inflated = await inflateZlib(compressed);
+        const xmlText = new TextDecoder('windows-874').decode(inflated);
+        parsed = parseLyricXml(xmlText);
+      }
+    }
+    let coverDataUrl = null;
+    if(coverBytes && coverBytes.length > 0){
+      coverDataUrl = `data:${coverMime || 'image/jpeg'};base64,${bytesToBase64(coverBytes)}`;
+    }
+    if(!parsed && !coverDataUrl) return null;
+    return { lines: parsed?.lines || null, title: parsed?.title || '', artist: parsed?.artist || '', coverDataUrl };
+  }catch(e){
+    console.warn('MP3 lyric parse failed', e);
+    return null;
+  }
+}
+const mp3LyricsCache = new Map(); // localFileId -> parsed result | null
+async function getMp3Lyrics(song){
+  if(mp3LyricsCache.has(song.localFileId)) return mp3LyricsCache.get(song.localFileId);
+  const file = localFiles.get(song.localFileId);
+  if(!file) return null;
+  const result = await extractMp3Lyrics(file);
+  mp3LyricsCache.set(song.localFileId, result);
+  return result;
+}
+
+/* ---------------- MP3 now-playing screen + word-by-word lyric rendering ---------------- */
+let currentMp3Lyrics = null; // { lines, title, artist, coverDataUrl } for the currently loaded song, or null
+let currentLyricLineIndex = -1;
+let mp3LyricsLoadToken = 0; // guards against a slow parse resolving after the user has already skipped away
+
+function hideMp3NowPlaying(){
+  document.getElementById('mp3-now-playing').style.display = 'none';
+  document.getElementById('mp3-lyrics').style.display = 'none';
+  document.getElementById('mp3-bg').classList.remove('has-cover');
+  document.getElementById('mp3-bg').style.backgroundImage = '';
+  currentMp3Lyrics = null;
+  currentLyricLineIndex = -1;
+  mp3LyricsLoadToken++;
+  connections.forEach(c => { if(c.open) c.send({ type: 'MP3_LYRICS', songId: null, title: '', artist: '', lines: null, coverDataUrl: null }); });
+}
+
+function loadMp3LyricsForSong(song){
+  const myToken = ++mp3LyricsLoadToken;
+  currentMp3Lyrics = null;
+  currentLyricLineIndex = -1;
+  document.getElementById('mp3-now-playing').style.display = 'flex';
+  document.getElementById('mp3-lyrics').style.display = 'none';
+  document.getElementById('mp3-bg').classList.remove('has-cover');
+  document.getElementById('mp3-bg').style.backgroundImage = '';
+  document.getElementById('mp3-title').textContent = song.title;
+  document.getElementById('mp3-artist').textContent = '';
+  getMp3Lyrics(song).then(result => {
+    if(myToken !== mp3LyricsLoadToken) return; // a different song has loaded since this was requested
+    currentMp3Lyrics = result;
+    if(result && result.artist) document.getElementById('mp3-artist').textContent = result.artist;
+    if(result && result.coverDataUrl){
+      document.getElementById('mp3-bg').style.backgroundImage = `url("${result.coverDataUrl}")`;
+      document.getElementById('mp3-bg').classList.add('has-cover');
+    }
+    document.getElementById('mp3-lyrics').style.display = (result && result.lines) ? 'flex' : 'none';
+    broadcastMp3Lyrics(song, result);
+  });
+}
+
+function broadcastMp3Lyrics(song, result){
+  const payload = {
+    type: 'MP3_LYRICS',
+    songId: song.id,
+    title: song.title,
+    artist: result?.artist || '',
+    lines: result?.lines || null,
+    coverDataUrl: result?.coverDataUrl || null
+  };
+  connections.forEach(c => { if(c.open) c.send(payload); });
+}
+
+function buildLyricLineWords(container, line){
+  container.innerHTML = '';
+  if(!line) return;
+  line.words.forEach(word => {
+    const wrap = document.createElement('span');
+    wrap.className = 'lyric-word';
+    const base = document.createElement('span');
+    base.className = 'lyric-word-base';
+    base.textContent = word.text;
+    const fill = document.createElement('span');
+    fill.className = 'lyric-word-fill';
+    fill.textContent = word.text;
+    wrap.appendChild(base);
+    wrap.appendChild(fill);
+    container.appendChild(wrap);
+  });
+}
+
+function renderMp3Lyrics(){
+  if(document.getElementById('mp3-now-playing').style.display === 'none') return;
+  if(!currentMp3Lyrics || !currentMp3Lyrics.lines) return;
+  const { currentTime } = getPlaybackTimes();
+  const curMs = currentTime * 1000;
+  const lines = currentMp3Lyrics.lines;
+  let idx = -1;
+  for(let i = 0; i < lines.length; i++){
+    if(lines[i].startTime <= curMs) idx = i; else break;
+  }
+  if(idx !== currentLyricLineIndex){
+    currentLyricLineIndex = idx;
+    buildLyricLineWords(document.getElementById('lyric-line-current'), idx >= 0 ? lines[idx] : null);
+    buildLyricLineWords(document.getElementById('lyric-line-next'), idx + 1 < lines.length ? lines[idx + 1] : null);
+  }
+  if(idx < 0) return;
+  const line = lines[idx];
+  const nextLineStart = idx + 1 < lines.length ? lines[idx + 1].startTime : line.words[line.words.length - 1].time + 2000;
+  const fillEls = document.querySelectorAll('#lyric-line-current .lyric-word-fill');
+  line.words.forEach((word, i) => {
+    const wordEnd = i + 1 < line.words.length ? line.words[i + 1].time : nextLineStart;
+    let progress = (curMs - word.time) / Math.max(1, wordEnd - word.time);
+    progress = Math.max(0, Math.min(1, progress));
+    const el = fillEls[i];
+    if(el) el.style.clipPath = `inset(0 ${(1 - progress) * 100}% 0 0)`;
+  });
+}
+setInterval(renderMp3Lyrics, 100);
+
 function scanLocalFolder(fileList){
   const audioExts = /\.(mp3|mp4|m4a|wav|ogg|oga|webm|mov|avi|flac|aac|wma)$/i;
   state.localLibrary = [];
   localFiles.clear();
+  mp3LyricsCache.clear(); // re-scanning means reading fresh from disk — don't serve stale cached lyrics/cover art from before
+
   Array.from(fileList).forEach(file => {
     if(!audioExts.test(file.name)) return;
     const relPath = file.webkitRelativePath || file.name;
