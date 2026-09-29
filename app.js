@@ -256,14 +256,18 @@ function loadSongIntoPlayer(song){
       hideMp3NowPlaying();
     }
   } else {
+    console.log('[YT Debug] Loading YouTube video:', song.videoId, '| ytReady:', ytReady, '| ytPlayer exists:', !!ytPlayer);
     if(localPlayer){ localPlayer.pause(); localPlayer.removeAttribute('src'); localPlayer.load(); localPlayer.style.display = 'none'; }
     if(ytWrap) ytWrap.style.display = '';
     if(ytReady && ytPlayer){
       ytPlayer.loadVideoById(song.videoId);
       ytPlayer.setPlaybackRate(state.tempo);
       state.isPlaying = true;
+    } else {
+      console.warn('[YT Debug] YouTube player was not ready — video will not load. ytReady:', ytReady, 'ytPlayer:', ytPlayer);
     }
     hideMp3NowPlaying();
+    console.log('[YT Debug] mp3-now-playing display after hide:', document.getElementById('mp3-now-playing').style.display, '| #player display:', getComputedStyle(ytWrap).display, '| #idle-screen display:', getComputedStyle(document.getElementById('idle-screen')).display);
   }
   applyAudioOutput(); // final step: makes sure the "muted while loading" state actually takes effect,
                        // overriding whatever volume/mute the branch above just set
@@ -1001,8 +1005,9 @@ function onYouTubeIframeAPIReady(){
     width: '100%', height: '100%',
     playerVars: { autoplay: 0, playsinline: 1, controls: 1, rel: 0 },
     events: {
-      onReady: () => { ytReady = true; applyAudioOutput(); },
+      onReady: () => { ytReady = true; console.log('[YT Debug] YouTube player onReady fired.'); applyAudioOutput(); },
       onStateChange: (e) => {
+        console.log('[YT Debug] onStateChange fired, state:', e.data, '(PLAYING=', YT.PlayerState.PLAYING, ')');
         if(e.data === YT.PlayerState.ENDED){
           const finishedSong = currentSong();
           if(finishedSong) recordAndShowScore(finishedSong);
