@@ -1779,7 +1779,6 @@ async function extractMp3Lyrics(file){
       const nextId = String.fromCharCode(view.getUint8(nextOffset), view.getUint8(nextOffset + 1), view.getUint8(nextOffset + 2), view.getUint8(nextOffset + 3));
       return /^[A-Z0-9]{4}$/.test(nextId) || nextId === '\u0000\u0000\u0000\u0000';
     }
-    let lyricsBytes = null;
     let coverBytes = null, coverMime = null;
     while(offset < end - 10){
       const frameId = String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3));
@@ -1793,12 +1792,6 @@ async function extractMp3Lyrics(file){
       }
       if(frameSize <= 0 || offset + 10 + frameSize > buf.byteLength) break;
       const frameStart = offset + 10;
-      if(frameId === 'TEXT' && !lyricsBytes){
-        const encoding = view.getUint8(frameStart);
-        if(encoding === 0){ // Latin-1 — a raw byte-per-character mapping, exactly what the base64 payload needs
-          lyricsBytes = new Uint8Array(buf, frameStart + 1, frameSize - 1);
-        }
-      }
       if(frameId === 'APIC' && !coverBytes){
         try{
           let p = frameStart;
@@ -1821,19 +1814,27 @@ async function extractMp3Lyrics(file){
       }
       offset = frameStart + frameSize;
     }
-    console.log('[MP3 Lyrics] TEXT frame with lyric data found:', !!lyricsBytes, '| APIC (cover) frame found:', !!coverBytes);
+    // The lyrics payload is found by scanning for its literal "LyrHdr1" signature directly, rather
+    // than trusting any frame's declared size to delimit it — frame sizes from this software have
+    // proven unreliable across different files in ways a single boundary-validation heuristic doesn't
+    // fully catch. Once the signature is found, the base64 payload is self-delimiting: just keep
+    // consuming valid base64 characters until hitting one that isn't (the start of the next frame, a
+    // null byte, etc.) — this works regardless of what the frame header claims.
+    const scanEnd = Math.min(end + 4096, buf.byteLength); // small margin past the tag in case its own declared size is also off
+    const scanRegion = new Uint8Array(buf, 0, scanEnd);
+    let asBytes = '';
+    for(let i = 0; i < scanRegion.length; i++) asBytes += String.fromCharCode(scanRegion[i]);
+    const sigIndex = asBytes.indexOf('LyrHdr1');
+    console.log('[MP3 Lyrics] "LyrHdr1" signature found at byte offset:', sigIndex, '| APIC (cover) frame found:', !!coverBytes);
     let parsed = null;
-    if(lyricsBytes){
-      // NOT TextDecoder('latin1') — per the WHATWG Encoding spec, browsers alias that label to
-      // windows-1252, which maps a handful of byte values (0x81, 0x8D, 0x8F, 0x90, 0x9D) to the
-      // replacement character U+FFFD instead of passing them through — corrupting the base64 payload
-      // if any of those bytes happen to appear in it, and making atob() throw. This manual conversion
-      // is a true 1:1 byte-to-code-point mapping, which is what a raw byte string actually needs.
-      let asLatin1 = '';
-      for(let i = 0; i < lyricsBytes.length; i++) asLatin1 += String.fromCharCode(lyricsBytes[i]);
-      if(asLatin1.startsWith('LyrHdr1')){
+    if(sigIndex !== -1){
+      let i = sigIndex + 7;
+      const isBase64Char = (c) => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '+' || c === '/' || c === '=';
+      while(i < asBytes.length && isBase64Char(asBytes[i])) i++;
+      const b64 = asBytes.slice(sigIndex + 7, i);
+      console.log('[MP3 Lyrics] Extracted base64 payload length:', b64.length);
+      {
         try{
-          const b64 = asLatin1.slice(7);
           const binStr = atob(b64);
           const compressed = new Uint8Array(binStr.length);
           for(let i = 0; i < binStr.length; i++) compressed[i] = binStr.charCodeAt(i);
@@ -1849,9 +1850,9 @@ async function extractMp3Lyrics(file){
         }catch(innerErr){
           console.warn('[MP3 Lyrics] Failed to decode/decompress/parse the embedded lyric data:', innerErr);
         }
-      } else {
-        console.log('[MP3 Lyrics] TEXT frame found but does not start with "LyrHdr1" — not this karaoke format, or a different one.');
       }
+    } else {
+      console.log('[MP3 Lyrics] No "LyrHdr1" signature found anywhere in this file\'s ID3 tag — not this karaoke format, or a different one.');
     }
     let coverDataUrl = null;
     if(coverBytes && coverBytes.length > 0){
