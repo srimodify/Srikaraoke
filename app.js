@@ -239,7 +239,9 @@ function loadSongIntoPlayer(song){
       return;
     }
     if(ytWrap) ytWrap.style.display = 'none';
-    if(ytPlayer){ try{ ytPlayer.stopVideo(); }catch(e){} } // otherwise a YouTube song playing before this keeps its audio going underneath
+    // mute() first for instant silence — stopVideo() alone can take a brief moment to actually cut
+    // the audio, which is exactly the overlap window this is meant to close.
+    if(ytPlayer){ try{ ytPlayer.mute(); ytPlayer.pauseVideo(); ytPlayer.stopVideo(); }catch(e){} }
     if(localPlayer){
       localPlayer.style.display = 'block';
       const url = URL.createObjectURL(file);

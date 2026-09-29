@@ -396,13 +396,18 @@ function onYouTubeIframeAPIReady(){
     events: {
       onReady: () => {
         ytReady = true;
+        console.log('[S2 Debug] Screen 2 YouTube player onReady fired.');
         // Screen 2 is a silent visual display by default (the host is the audio source), so this
         // player is muted on purpose unless the host has switched audio output to Screen 2.
         if(pendingAudioState) applyAudioFromHost(pendingAudioState.output, pendingAudioState.volume, pendingAudioState.muted);
         else { ytPlayer.mute(); ytPlayer.setVolume(0); }
       },
       onStateChange: (e) => {
+        console.log('[S2 Debug] Screen 2 onStateChange fired, state:', e.data, '(PLAYING=', YT.PlayerState.PLAYING, ')');
         if(e.data === YT.PlayerState.PLAYING) hideLoadingOverlay();
+      },
+      onError: (e) => {
+        console.error('[S2 Debug] Screen 2 YouTube player error:', e.data);
       }
     }
   });
@@ -411,6 +416,7 @@ window.onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
 
 function applyVideoState(currentId, currentTime){
   const song = myQueue.find(s => s.id === currentId);
+  console.log('[S2 Debug] applyVideoState called. currentId:', currentId, '| song found:', !!song, '| source:', song?.source, '| ytReady:', ytReady, '| ytPlayer exists:', !!ytPlayer, '| lastLoadedVideoId:', lastLoadedVideoId);
   if(!song || song.source === 'local'){
     // Local files only exist on the host device's own file system — Screen 2 has no way to read or
     // play them, so it just clears its player and shows a placeholder (handled in renderDisplay).
@@ -419,8 +425,9 @@ function applyVideoState(currentId, currentTime){
     if(ytReady && ytPlayer){ try{ ytPlayer.stopVideo(); }catch(e){} }
     return;
   }
-  if(!ytReady || !ytPlayer) return;
+  if(!ytReady || !ytPlayer){ console.warn('[S2 Debug] YT player not ready on Screen 2 — cannot load video.'); return; }
   if(song.videoId !== lastLoadedVideoId){
+    console.log('[S2 Debug] Loading new video on Screen 2:', song.videoId);
     lastLoadedVideoId = song.videoId;
     showLoadingOverlay(song);
     try{
@@ -428,7 +435,11 @@ function applyVideoState(currentId, currentTime){
       if(typeof currentTime === 'number' && currentTime > 1){
         setTimeout(() => { try{ ytPlayer.seekTo(currentTime, true); }catch(e){} }, 600);
       }
-    }catch(e){}
+    }catch(e){
+      console.error('[S2 Debug] loadVideoById threw an error:', e);
+    }
+  } else {
+    console.log('[S2 Debug] Same videoId as already loaded — skipping reload.');
   }
 }
 
