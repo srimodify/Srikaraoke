@@ -800,6 +800,194 @@ function playSoundEffect(file){
 }
 
 
+/* ---------------- Mic + vocal effects (host only) ----------------
+   Completely separate audio graph from the song playback system — the microphone is read directly
+   from this device's hardware via getUserMedia and routed straight to this device's own speakers
+   through the Web Audio API. It never touches the YouTube player, the local <video> element, or the
+   "เสียงออกที่จอไหน" (audio output) setting at all, since a physical mic is only ever plugged into
+   whichever device is running the host page. */
+const MIC_EQ_BANDS = [
+  { freq: 31, label: '31' }, { freq: 62, label: '62' }, { freq: 125, label: '125' },
+  { freq: 250, label: '250' }, { freq: 500, label: '500' }, { freq: 1000, label: '1k' },
+  { freq: 2000, label: '2k' }, { freq: 4000, label: '4k' }, { freq: 8000, label: '8k' }, { freq: 16000, label: '16k' }
+];
+let micCtx = null;
+let micStream = null;
+let micNodes = null; // { source, eqFilters[], dryGain, delay, feedback, echoWet, convolver, reverbWet, master }
+
+// A synthesized reverb "room" — exponentially-decaying white noise used as a ConvolverNode's impulse
+// response. Generated entirely in code, so there's no audio file and no copyright concern at all.
+function createReverbImpulse(ctx, duration, decay){
+  const rate = ctx.sampleRate;
+  const length = Math.max(1, Math.floor(rate * duration));
+  const impulse = ctx.createBuffer(2, length, rate);
+  for(let channel = 0; channel < 2; channel++){
+    const data = impulse.getChannelData(channel);
+    for(let i = 0; i < length; i++){
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+    }
+  }
+  return impulse;
+}
+
+async function startMic(){
+  if(micStream) return true; // already on
+  try{
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+  }catch(e){
+    console.warn('[Mic] getUserMedia failed:', e);
+    showToast('⚠️ ไม่สามารถเข้าถึงไมโครโฟนได้ — ตรวจสอบว่าอนุญาตสิทธิ์ไมค์ให้เว็บนี้แล้ว', true);
+    return false;
+  }
+  if(!micCtx) micCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(micCtx.state === 'suspended') micCtx.resume().catch(() => {});
+
+  const source = micCtx.createMediaStreamSource(micStream);
+
+  // EQ: 10 peaking filters chained in series, each independently adjustable.
+  const eqFilters = MIC_EQ_BANDS.map(band => {
+    const f = micCtx.createBiquadFilter();
+    f.type = 'peaking';
+    f.frequency.value = band.freq;
+    f.Q.value = 1.0;
+    f.gain.value = 0;
+    return f;
+  });
+  let node = source;
+  eqFilters.forEach(f => { node.connect(f); node = f; });
+  const eqOut = node;
+
+  // Dry (unprocessed-by-effects, but post-EQ) path — always on, this is the "clean" vocal signal.
+  const dryGain = micCtx.createGain();
+  dryGain.gain.value = 1;
+  eqOut.connect(dryGain);
+
+  // Echo: a classic karaoke-style repeating delay. Feedback is fixed at a safe level (not
+  // user-adjustable) so it always decays naturally instead of risking a runaway howl; only the wet
+  // mix amount is exposed to the operator.
+  const delay = micCtx.createDelay(2.0);
+  delay.delayTime.value = 0.28;
+  const feedback = micCtx.createGain();
+  feedback.gain.value = 0.35;
+  const echoWet = micCtx.createGain();
+  echoWet.gain.value = 0;
+  eqOut.connect(delay);
+  delay.connect(feedback);
+  feedback.connect(delay);
+  delay.connect(echoWet);
+
+  // Reverb: synthesized impulse response via ConvolverNode.
+  const convolver = micCtx.createConvolver();
+  convolver.buffer = createReverbImpulse(micCtx, 2.2, 3.0);
+  const reverbWet = micCtx.createGain();
+  reverbWet.gain.value = 0;
+  eqOut.connect(convolver);
+  convolver.connect(reverbWet);
+
+  // Master (mic volume) — everything mixes back together here before hitting the speakers. Reads
+  // whatever the volume slider is currently set to, in case the operator adjusted it before turning
+  // the mic on.
+  const master = micCtx.createGain();
+  master.gain.value = parseFloat(document.getElementById('mic-vol-slider').value) / 100;
+  dryGain.connect(master);
+  echoWet.connect(master);
+  reverbWet.connect(master);
+  master.connect(micCtx.destination);
+
+  micNodes = { source, eqFilters, dryGain, delay, feedback, echoWet, convolver, reverbWet, master };
+  return true;
+}
+
+function stopMic(){
+  if(micStream){
+    micStream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
+    micStream = null;
+  }
+  if(micNodes){
+    try{
+      micNodes.source.disconnect();
+      micNodes.eqFilters.forEach(f => { try{ f.disconnect(); }catch(e){} });
+      micNodes.dryGain.disconnect();
+      micNodes.delay.disconnect();
+      micNodes.feedback.disconnect();
+      micNodes.echoWet.disconnect();
+      micNodes.convolver.disconnect();
+      micNodes.reverbWet.disconnect();
+      micNodes.master.disconnect();
+    }catch(e){}
+    micNodes = null;
+  }
+}
+
+function renderMicEqSliders(){
+  const row = document.getElementById('mic-eq-row');
+  row.innerHTML = '';
+  MIC_EQ_BANDS.forEach((band, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'mic-eq-band';
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'mic-eq-slider';
+    slider.min = '-12'; slider.max = '12'; slider.value = '0'; slider.step = '1';
+    slider.dataset.bandIndex = i;
+    slider.addEventListener('input', () => {
+      if(micNodes) micNodes.eqFilters[i].gain.value = parseFloat(slider.value);
+    });
+    const label = document.createElement('span');
+    label.className = 'mic-eq-label';
+    label.textContent = band.label;
+    wrap.appendChild(slider);
+    wrap.appendChild(label);
+    row.appendChild(wrap);
+  });
+}
+renderMicEqSliders();
+
+document.getElementById('btn-mic-toggle').onclick = () => {
+  const panel = document.getElementById('mic-panel');
+  const btn = document.getElementById('btn-mic-toggle');
+  const shown = panel.style.display !== 'none';
+  panel.style.display = shown ? 'none' : 'flex';
+  btn.classList.toggle('on', !shown);
+};
+
+document.getElementById('btn-mic-power').onclick = async () => {
+  const btn = document.getElementById('btn-mic-power');
+  if(micStream){
+    stopMic();
+    btn.textContent = 'เปิดไมค์';
+    btn.classList.remove('on');
+    document.getElementById('btn-mic-toggle').classList.remove('on');
+    showToast('🎤 ปิดไมค์แล้ว');
+  } else {
+    btn.textContent = 'กำลังเชื่อมต่อ...';
+    const ok = await startMic();
+    if(ok){
+      btn.textContent = 'ปิดไมค์';
+      btn.classList.add('on');
+      document.getElementById('btn-mic-toggle').classList.add('on');
+      showToast('🎤 เปิดไมค์แล้ว — ปรับ EQ/เอฟเฟกต์ได้เลย');
+    } else {
+      btn.textContent = 'เปิดไมค์';
+    }
+  }
+};
+
+document.getElementById('mic-vol-slider').addEventListener('input', (e) => {
+  if(micNodes) micNodes.master.gain.value = parseFloat(e.target.value) / 100;
+});
+document.getElementById('mic-echo-slider').addEventListener('input', (e) => {
+  if(micNodes) micNodes.echoWet.gain.value = parseFloat(e.target.value) / 100;
+});
+document.getElementById('mic-reverb-slider').addEventListener('input', (e) => {
+  if(micNodes) micNodes.reverbWet.gain.value = parseFloat(e.target.value) / 100;
+});
+// Release the microphone hardware if the page is closed/reloaded while it's still on, rather than
+// leaving the browser's mic-in-use indicator on for no reason.
+window.addEventListener('beforeunload', () => { stopMic(); });
+
 function renderTempo(){
   document.getElementById('tempo-value').textContent = state.tempo.toFixed(2) + 'x';
 }

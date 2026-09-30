@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sri-karaoke-v11';
+const CACHE_NAME = 'sri-karaoke-v13';
 const APP_SHELL = [
   './index.html',
   './remote.html',
@@ -16,8 +16,17 @@ const APP_SHELL = [
 ];
 
 self.addEventListener('install', (event) => {
+  // Deliberately NOT cache.addAll(APP_SHELL) — addAll() is all-or-nothing: if even one single URL in
+  // the list fails (a transient network hiccup, a file temporarily missing right after a fresh
+  // deploy, an overzealous ad-blocker, etc.), the WHOLE install event rejects and the service worker
+  // never activates at all — breaking the PWA for every page on the site at once, since they all share
+  // this one worker. Caching each file independently means one failure can't take down the rest.
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then((cache) => Promise.all(
+      APP_SHELL.map((url) => cache.add(url).catch((err) => {
+        console.warn('[SW] Failed to pre-cache (skipping, not fatal):', url, err);
+      }))
+    ))
   );
   self.skipWaiting();
 });
