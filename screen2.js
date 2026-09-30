@@ -257,19 +257,24 @@ let pendingAudioState = null;
 let currentAudioOutput = 'screen1', currentAudioVolume = 100, currentAudioMuted = false;
 let isLoadingSong = false;
 function applyAudioFromHost(output, volume, muted){
+  console.log('[Audio Debug] Screen 2 applyAudioFromHost called. output:', output, '| volume:', volume, '| muted:', muted, '| ytReady:', ytReady, '| ytPlayer exists:', !!ytPlayer, '| isLoadingSong:', isLoadingSong);
   currentAudioOutput = output;
   currentAudioVolume = typeof volume === 'number' ? volume : 100;
   currentAudioMuted = !!muted;
-  if(!ytReady || !ytPlayer){ pendingAudioState = { output, volume, muted }; return; }
+  if(!ytReady || !ytPlayer){ console.warn('[Audio Debug] Screen 2 YT player not ready — storing as pending.'); pendingAudioState = { output, volume, muted }; return; }
   try{
     if(output === 'screen2' && !isLoadingSong){
+      console.log('[Audio Debug] Screen 2 unmuting/setting volume:', currentAudioMuted ? 0 : currentAudioVolume);
       ytPlayer.setVolume(currentAudioMuted ? 0 : currentAudioVolume);
       if(currentAudioMuted) ytPlayer.mute(); else ytPlayer.unMute();
     } else {
+      console.log('[Audio Debug] Screen 2 muting (output is screen1, or currently loading a song).');
       ytPlayer.mute();
       ytPlayer.setVolume(0);
     }
-  }catch(e){}
+  }catch(e){
+    console.error('[Audio Debug] Screen 2 applyAudioFromHost threw:', e);
+  }
 }
 
 /* ---------------- Ambient "please wait" music during the loading overlay ----------------

@@ -996,6 +996,7 @@ function toggleMute(){
 // phone remotes) gets an AUDIO_OUTPUT message — phone remotes have no player and simply ignore it.
 function applyAudioOutput(){
   const forceMuteForLoading = isLoadingSong && state.audioOutput === 'screen1';
+  console.log('[Audio Debug] applyAudioOutput called. audioOutput:', state.audioOutput, '| isLoadingSong:', isLoadingSong, '| currentSong source:', currentSong()?.source, '| connections:', connections.length);
   if(state.audioOutput === 'screen2' || forceMuteForLoading){
     if(ytReady && ytPlayer){ try{ ytPlayer.mute(); ytPlayer.setVolume(0); }catch(e){} }
     if(localPlayer){ localPlayer.muted = true; localPlayer.volume = 0; }
