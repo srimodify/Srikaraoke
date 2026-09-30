@@ -279,12 +279,49 @@ function loadSongIntoPlayer(song){
       state.isPlaying = true;
     } else {
       console.warn('[YT Debug] YouTube player was not ready — video will not load. ytReady:', ytReady, 'ytPlayer:', ytPlayer);
+      // The YouTube IFrame API script itself (loaded from youtube.com) can fail or take unusually
+      // long to load — a flaky connection, a firewall/network restriction, or an ad-blocker are the
+      // most common causes, and none of them are something this page can fix on its own. Rather than
+      // silently doing nothing (which just looks like the app is broken), keep checking for a while
+      // and load the song the moment the player does become ready, while telling the operator what's
+      // actually going on in the meantime.
+      showToast('⚠️ ยังเชื่อมต่อ YouTube ไม่สำเร็จ กำลังลองใหม่... (ตรวจสอบอินเทอร์เน็ต/ตัวบล็อกโฆษณาถ้ายังไม่ขึ้น)', true);
+      waitForYouTubePlayerThenRetry(song);
     }
     hideMp3NowPlaying();
     console.log('[YT Debug] mp3-now-playing display after hide:', document.getElementById('mp3-now-playing').style.display, '| #player display:', getComputedStyle(ytWrap).display, '| #idle-screen display:', getComputedStyle(document.getElementById('idle-screen')).display);
   }
   applyAudioOutput(); // final step: makes sure the "muted while loading" state actually takes effect,
                        // overriding whatever volume/mute the branch above just set
+}
+
+// Guards the retry loop below so an older attempt can't fire after the operator has already moved on
+// to a different song (skipped, picked something else, etc.) while still waiting for YouTube.
+let ytRetryToken = 0;
+function waitForYouTubePlayerThenRetry(song){
+  const myToken = ++ytRetryToken;
+  const startedAt = Date.now();
+  const timeoutMs = 20000;
+  const check = () => {
+    if(myToken !== ytRetryToken) return; // a different song was requested meanwhile — stop retrying this one
+    if(currentSong()?.id !== song.id) return; // the operator moved on — nothing left to retry into
+    if(ytReady && ytPlayer){
+      console.log('[YT Debug] YouTube player became ready — loading the pending video now:', song.videoId);
+      try{
+        ytPlayer.loadVideoById(song.videoId);
+        ytPlayer.setPlaybackRate(state.tempo);
+        state.isPlaying = true;
+        showToast('✅ เชื่อมต่อ YouTube สำเร็จแล้ว กำลังเล่น "' + song.title + '"');
+      }catch(e){ console.error('[YT Debug] Retry load failed:', e); }
+      return;
+    }
+    if(Date.now() - startedAt > timeoutMs){
+      showToast('❌ เชื่อมต่อ YouTube ไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตของจอหลัก หรือปิดตัวบล็อกโฆษณาที่อาจบล็อก youtube.com แล้วลองเล่นเพลงนี้ใหม่', true);
+      return;
+    }
+    setTimeout(check, 1000);
+  };
+  setTimeout(check, 1000);
 }
 
 function closeModal(id){ document.getElementById(id).classList.add('hidden'); }
