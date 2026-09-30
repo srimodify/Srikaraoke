@@ -238,6 +238,17 @@ function loadSongIntoPlayer(song){
       skip('ไฟล์หายไป');
       return;
     }
+    // Local files never leave this device, so Screen 2 has no way to output their audio at all — if
+    // the previous song was on YouTube with output already switched to Screen 2, force it back here
+    // rather than leaving both this device AND Screen 2 silent (Screen 2 has nothing valid to play,
+    // and this device would otherwise also mute itself per the "screen2" setting below).
+    if(state.audioOutput === 'screen2'){
+      state.audioOutput = 'screen1';
+      sessionStorage.setItem('sriKaraoke_audioOutput', 'screen1');
+      const outputBtn = document.getElementById('btn-audio-output-toggle');
+      if(outputBtn) outputBtn.textContent = 'จอหลัก';
+      showToast('🔊 เพลงนี้เป็นไฟล์ในเครื่อง — ย้ายเสียงกลับมาที่จอหลักให้อัตโนมัติ');
+    }
     if(ytWrap) ytWrap.style.display = 'none';
     // mute() first for instant silence — stopVideo() alone can take a brief moment to actually cut
     // the audio, which is exactly the overlap window this is meant to close.
@@ -2289,7 +2300,17 @@ document.getElementById('btn-screen2-toggle').onclick = () => {
   }
 };
 document.getElementById('btn-audio-output-toggle').onclick = () => {
-  state.audioOutput = state.audioOutput === 'screen1' ? 'screen2' : 'screen1';
+  const wantsScreen2 = state.audioOutput === 'screen1';
+  const nowPlayingSong = currentSong();
+  if(wantsScreen2 && nowPlayingSong && nowPlayingSong.source === 'local'){
+    // Local files (video or MP3) only ever exist on this device's own file system — there is no way
+    // for Screen 2 to play their audio at all, since the file itself never leaves the host. Switching
+    // output there anyway used to leave Screen 2 in a broken, silent, glitchy state with nothing valid
+    // to actually play.
+    showToast('⚠️ เพลงนี้เป็นไฟล์ในเครื่อง เสียงออกได้ที่จอหลักเท่านั้น', true);
+    return;
+  }
+  state.audioOutput = wantsScreen2 ? 'screen2' : 'screen1';
   sessionStorage.setItem('sriKaraoke_audioOutput', state.audioOutput);
   document.getElementById('btn-audio-output-toggle').textContent = state.audioOutput === 'screen2' ? 'จอที่ 2' : 'จอหลัก';
   applyAudioOutput();
