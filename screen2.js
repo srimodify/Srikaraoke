@@ -675,3 +675,13 @@ document.getElementById('btn-connect').onclick = () => {
     connectToRoom(room, pin);
   }
 })();
+
+// Service worker — this was missing entirely on Screen 2 (present on the host and remote pages, but
+// never here), which is very likely exactly why Screen 2 specifically could not be installed as a PWA
+// on some devices: without an active service worker, this page fails the standard installability
+// criteria regardless of how correct manifest-screen2.json itself is.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW register failed', err));
+  });
+}
