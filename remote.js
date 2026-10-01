@@ -10,6 +10,15 @@ const STORAGE_APIKEY = 'sriKaraoke_ytApiKey';
 const LOCAL_FILE_THUMB = 'data:image/svg+xml;utf8,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="%23241C42"/><path d="M26 42a6 6 0 1 1-2-4.5V16l18-4v20.5a6 6 0 1 1-4-5.6V16.8l-10 2.2V42a6 6 0 0 1-2 0z" fill="%23FFC857"/></svg>'
 );
+function showToast(msg, isError){
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = 'toast' + (isError ? ' error' : '');
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 300); }, 4000);
+}
+
 // Same default key + override pattern as the host page (shared localStorage on the same origin).
 const DEFAULT_API_KEY = 'AIzaSyBg5hplav7HzIHfXoDWlwZeENvQ7nb5i6Y';
 function getApiKey(){
@@ -238,6 +247,21 @@ function handleHostMessage(msg){
   }
   if(msg.type === 'SCORE_ANNOUNCE'){
     showScorePopup(msg.entry, msg.leaderboard);
+    return;
+  }
+  if(msg.type === 'MIC_SLOT_GRANTED'){
+    startRemoteMicStream();
+    return;
+  }
+  if(msg.type === 'MIC_SLOT_DENIED'){
+    setRemoteMicButtonState('off');
+    showToast('⚠️ ไมค์เต็มแล้ว (ใช้ได้สูงสุด 2 เครื่องพร้อมกัน) กรุณาปิดไมค์เครื่องอื่นก่อน', true);
+    return;
+  }
+  if(msg.type === 'MIC_KICKED'){
+    stopRemoteMic(false); // the host already knows — no need to send MIC_SLOT_RELEASE back
+    showToast('🔌 จอหลักปิดไมค์ของคุณแล้ว', true);
+    return;
   }
 }
 
@@ -280,6 +304,88 @@ document.getElementById('btn-effects-toggle').onclick = () => {
   bar.style.display = shown ? 'none' : 'flex';
   btn.classList.toggle('active', !shown);
 };
+
+/* ---------------- Floating mic (sends this device's own mic, live, to the host) ----------------
+   The host runs up to 2 of these at once (plus its own mic). Each one is a WebRTC media call layered
+   on top of the same PeerJS connection already used for remote control — nothing new to connect to.
+   This device only ever SENDS audio; it never receives anything back. */
+let remoteMicStream = null;
+let remoteMicCall = null;
+let remoteMicState = 'off'; // 'off' | 'requesting' | 'on'
+let micRequestToken = 0; // guards the "host never replied" timeout against a stale/superseded request
+
+function setRemoteMicButtonState(newState){
+  remoteMicState = newState;
+  const btn = document.getElementById('btn-remote-mic');
+  btn.classList.toggle('on', newState === 'on');
+  btn.classList.toggle('connecting', newState === 'requesting');
+  btn.title = newState === 'on' ? 'ปิดไมค์ลอย' : 'เปิดไมค์ลอย (ส่งเสียงไปจอหลัก)';
+}
+
+async function startRemoteMicStream(){
+  try{
+    remoteMicStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+  }catch(e){
+    console.warn('[Remote Mic] getUserMedia failed:', e);
+    send({ type: 'MIC_SLOT_RELEASE' }); // let the host free the slot it reserved right away, not after a timeout
+    showToast('⚠️ ไม่สามารถเข้าถึงไมโครโฟนได้ — ตรวจสอบว่าอนุญาตสิทธิ์ไมค์แล้ว', true);
+    setRemoteMicButtonState('off');
+    return;
+  }
+  if(!peer || peer.destroyed){
+    remoteMicStream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
+    remoteMicStream = null;
+    send({ type: 'MIC_SLOT_RELEASE' });
+    setRemoteMicButtonState('off');
+    return;
+  }
+  remoteMicCall = peer.call(currentRoomId, remoteMicStream, { metadata: { name: nickname || 'รีโมท' } });
+  remoteMicCall.on('close', () => { stopRemoteMic(false); });
+  remoteMicCall.on('error', () => { stopRemoteMic(false); });
+  setRemoteMicButtonState('on');
+  showToast('🎤 เชื่อมต่อไมค์กับจอหลักแล้ว');
+}
+
+function stopRemoteMic(notifyHost){
+  if(remoteMicStream){
+    remoteMicStream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
+    remoteMicStream = null;
+  }
+  if(remoteMicCall){
+    try{ remoteMicCall.close(); }catch(e){}
+    remoteMicCall = null;
+  }
+  if(notifyHost !== false) send({ type: 'MIC_SLOT_RELEASE' });
+  setRemoteMicButtonState('off');
+}
+
+document.getElementById('btn-remote-mic').onclick = () => {
+  if(remoteMicState === 'requesting') return; // already waiting on the host's reply
+  if(remoteMicState === 'on'){
+    stopRemoteMic();
+    showToast('🎤 ปิดไมค์ลอยแล้ว');
+    return;
+  }
+  if(!conn || !conn.open){
+    showToast('⚠️ ยังไม่ได้เชื่อมต่อกับจอหลัก', true);
+    return;
+  }
+  setRemoteMicButtonState('requesting');
+  send({ type: 'REQUEST_MIC_SLOT', name: nickname || 'รีโมท' });
+  // If the host never replies at all (message lost, host busy, etc.), don't leave the button stuck
+  // showing "connecting" forever.
+  const requestedAt = ++micRequestToken;
+  setTimeout(() => {
+    if(micRequestToken === requestedAt && remoteMicState === 'requesting'){
+      setRemoteMicButtonState('off');
+      showToast('⚠️ จอหลักไม่ตอบสนอง กรุณาลองใหม่อีกครั้ง', true);
+    }
+  }, 8000);
+};
+// Release the microphone hardware if this page is closed/reloaded while the floating mic is still on.
+window.addEventListener('beforeunload', () => { stopRemoteMic(); });
 
 /* ---------------- Singing score popup (mirrors host) ---------------- */
 let scorePopupTimer = null;

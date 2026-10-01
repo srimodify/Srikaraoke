@@ -812,8 +812,17 @@ const MIC_EQ_BANDS = [
   { freq: 2000, label: '2k' }, { freq: 4000, label: '4k' }, { freq: 8000, label: '8k' }, { freq: 16000, label: '16k' }
 ];
 let micCtx = null;
-let micStream = null;
-let micNodes = null; // { source, eqFilters[], dryGain, delay, feedback, echoWet, convolver, reverbWet, master }
+// Every mic channel — the host's own, plus up to 2 remote phones acting as floating mics — gets its
+// own fully independent EQ/Echo/Reverb/Volume chain, keyed here by a channel id ('host', or a remote's
+// PeerJS peer id). This Map is the single source of truth for both the live audio nodes and the
+// current slider values (so switching tabs doesn't lose anything, and a channel's values survive even
+// while its mic is off).
+const micChannels = new Map();
+let selectedMicChannel = 'host';
+const MAX_REMOTE_MICS = 2;
+const pendingMicRequests = new Set(); // conn.peer ids granted a slot but not yet streaming — reserves the slot so a 3rd request can't sneak in during the gap
+
+function newMicChannelValues(){ return { vol: 100, eq: MIC_EQ_BANDS.map(() => 0), echo: 0, reverb: 0 }; }
 
 // A synthesized reverb "room" — exponentially-decaying white noise used as a ConvolverNode's impulse
 // response. Generated entirely in code, so there's no audio file and no copyright concern at all.
@@ -830,10 +839,83 @@ function createReverbImpulse(ctx, duration, decay){
   return impulse;
 }
 
-async function startMic(){
-  if(micStream) return true; // already on
+// Builds one independent EQ → Echo/Reverb → Volume chain for a given audio source node (either this
+// device's own mic, or an incoming WebRTC stream from a remote phone), seeded with whatever values
+// this channel already had (so re-opening a channel, or adjusting sliders before the mic itself turns
+// on, isn't lost).
+function buildMicChannelNodes(ctx, sourceNode, values){
+  const eqFilters = MIC_EQ_BANDS.map((band, i) => {
+    const f = ctx.createBiquadFilter();
+    f.type = 'peaking';
+    f.frequency.value = band.freq;
+    f.Q.value = 1.0;
+    f.gain.value = values.eq[i];
+    return f;
+  });
+  let node = sourceNode;
+  eqFilters.forEach(f => { node.connect(f); node = f; });
+  const eqOut = node;
+
+  const dryGain = ctx.createGain();
+  dryGain.gain.value = 1;
+  eqOut.connect(dryGain);
+
+  // Feedback is fixed at a safe level (not user-adjustable) so echo always decays naturally instead of
+  // risking a runaway howl; only the wet mix amount is exposed to the operator.
+  const delay = ctx.createDelay(2.0);
+  delay.delayTime.value = 0.28;
+  const feedback = ctx.createGain();
+  feedback.gain.value = 0.35;
+  const echoWet = ctx.createGain();
+  echoWet.gain.value = values.echo / 100;
+  eqOut.connect(delay);
+  delay.connect(feedback);
+  feedback.connect(delay);
+  delay.connect(echoWet);
+
+  const convolver = ctx.createConvolver();
+  convolver.buffer = createReverbImpulse(ctx, 2.2, 3.0);
+  const reverbWet = ctx.createGain();
+  reverbWet.gain.value = values.reverb / 100;
+  eqOut.connect(convolver);
+  convolver.connect(reverbWet);
+
+  const master = ctx.createGain();
+  master.gain.value = values.vol / 100;
+  dryGain.connect(master);
+  echoWet.connect(master);
+  reverbWet.connect(master);
+  master.connect(ctx.destination);
+
+  return { source: sourceNode, eqFilters, dryGain, delay, feedback, echoWet, convolver, reverbWet, master };
+}
+
+function disconnectMicChannelNodes(nodes){
+  if(!nodes) return;
   try{
-    micStream = await navigator.mediaDevices.getUserMedia({
+    nodes.source.disconnect();
+    nodes.eqFilters.forEach(f => { try{ f.disconnect(); }catch(e){} });
+    nodes.dryGain.disconnect();
+    nodes.delay.disconnect();
+    nodes.feedback.disconnect();
+    nodes.echoWet.disconnect();
+    nodes.convolver.disconnect();
+    nodes.reverbWet.disconnect();
+    nodes.master.disconnect();
+  }catch(e){}
+}
+
+function ensureMicCtx(){
+  if(!micCtx) micCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(micCtx.state === 'suspended') micCtx.resume().catch(() => {});
+}
+
+async function startHostMic(){
+  const existing = micChannels.get('host');
+  if(existing && existing.stream) return true; // already on
+  let stream;
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
     });
   }catch(e){
@@ -841,87 +923,106 @@ async function startMic(){
     showToast('⚠️ ไม่สามารถเข้าถึงไมโครโฟนได้ — ตรวจสอบว่าอนุญาตสิทธิ์ไมค์ให้เว็บนี้แล้ว', true);
     return false;
   }
-  if(!micCtx) micCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if(micCtx.state === 'suspended') micCtx.resume().catch(() => {});
-
-  const source = micCtx.createMediaStreamSource(micStream);
-
-  // EQ: 10 peaking filters chained in series, each independently adjustable.
-  const eqFilters = MIC_EQ_BANDS.map(band => {
-    const f = micCtx.createBiquadFilter();
-    f.type = 'peaking';
-    f.frequency.value = band.freq;
-    f.Q.value = 1.0;
-    f.gain.value = 0;
-    return f;
-  });
-  let node = source;
-  eqFilters.forEach(f => { node.connect(f); node = f; });
-  const eqOut = node;
-
-  // Dry (unprocessed-by-effects, but post-EQ) path — always on, this is the "clean" vocal signal.
-  const dryGain = micCtx.createGain();
-  dryGain.gain.value = 1;
-  eqOut.connect(dryGain);
-
-  // Echo: a classic karaoke-style repeating delay. Feedback is fixed at a safe level (not
-  // user-adjustable) so it always decays naturally instead of risking a runaway howl; only the wet
-  // mix amount is exposed to the operator.
-  const delay = micCtx.createDelay(2.0);
-  delay.delayTime.value = 0.28;
-  const feedback = micCtx.createGain();
-  feedback.gain.value = 0.35;
-  const echoWet = micCtx.createGain();
-  echoWet.gain.value = 0;
-  eqOut.connect(delay);
-  delay.connect(feedback);
-  feedback.connect(delay);
-  delay.connect(echoWet);
-
-  // Reverb: synthesized impulse response via ConvolverNode.
-  const convolver = micCtx.createConvolver();
-  convolver.buffer = createReverbImpulse(micCtx, 2.2, 3.0);
-  const reverbWet = micCtx.createGain();
-  reverbWet.gain.value = 0;
-  eqOut.connect(convolver);
-  convolver.connect(reverbWet);
-
-  // Master (mic volume) — everything mixes back together here before hitting the speakers. Reads
-  // whatever the volume slider is currently set to, in case the operator adjusted it before turning
-  // the mic on.
-  const master = micCtx.createGain();
-  master.gain.value = parseFloat(document.getElementById('mic-vol-slider').value) / 100;
-  dryGain.connect(master);
-  echoWet.connect(master);
-  reverbWet.connect(master);
-  master.connect(micCtx.destination);
-
-  micNodes = { source, eqFilters, dryGain, delay, feedback, echoWet, convolver, reverbWet, master };
+  ensureMicCtx();
+  const values = existing ? existing.values : newMicChannelValues();
+  const source = micCtx.createMediaStreamSource(stream);
+  const nodes = buildMicChannelNodes(micCtx, source, values);
+  micChannels.set('host', { label: 'จอหลัก', isRemote: false, nodes, values, stream });
   return true;
 }
 
-function stopMic(){
-  if(micStream){
-    micStream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
-    micStream = null;
-  }
-  if(micNodes){
-    try{
-      micNodes.source.disconnect();
-      micNodes.eqFilters.forEach(f => { try{ f.disconnect(); }catch(e){} });
-      micNodes.dryGain.disconnect();
-      micNodes.delay.disconnect();
-      micNodes.feedback.disconnect();
-      micNodes.echoWet.disconnect();
-      micNodes.convolver.disconnect();
-      micNodes.reverbWet.disconnect();
-      micNodes.master.disconnect();
-    }catch(e){}
-    micNodes = null;
-  }
+function stopHostMic(){
+  const ch = micChannels.get('host');
+  if(!ch) return;
+  if(ch.stream) ch.stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
+  disconnectMicChannelNodes(ch.nodes);
+  micChannels.set('host', { ...ch, nodes: null, stream: null });
 }
 
-function renderMicEqSliders(){
+// Called when a remote phone's WebRTC media call actually arrives with its audio stream.
+function addRemoteMicChannel(channelId, label, mediaStream, call, conn){
+  pendingMicRequests.delete(channelId);
+  ensureMicCtx();
+  const values = newMicChannelValues();
+  const source = micCtx.createMediaStreamSource(mediaStream);
+  const nodes = buildMicChannelNodes(micCtx, source, values);
+  micChannels.set(channelId, { label, isRemote: true, nodes, values, stream: mediaStream, call, conn });
+  renderMicChannelTabs();
+  showToast('🎤 "' + label + '" เชื่อมต่อไมค์ลอยแล้ว');
+}
+
+function removeRemoteMicChannel(channelId){
+  const ch = micChannels.get(channelId);
+  if(!ch) return;
+  disconnectMicChannelNodes(ch.nodes);
+  if(ch.call){ try{ ch.call.close(); }catch(e){} }
+  micChannels.delete(channelId);
+  pendingMicRequests.delete(channelId);
+  if(selectedMicChannel === channelId) selectedMicChannel = 'host';
+  renderMicChannelTabs();
+  renderMicChannelControls();
+}
+
+function remoteMicSlotCount(){
+  let count = 0;
+  micChannels.forEach(ch => { if(ch.isRemote) count++; });
+  return count + pendingMicRequests.size;
+}
+
+// A remote asked to turn its floating mic on — grants or denies a slot (out of MAX_REMOTE_MICS), and
+// reserves the slot immediately on a grant so a near-simultaneous 3rd request can't slip through
+// before this remote's actual audio stream arrives a moment later.
+function handleMicSlotRequest(conn, name){
+  if(remoteMicSlotCount() >= MAX_REMOTE_MICS){
+    conn.send({ type: 'MIC_SLOT_DENIED' });
+    return;
+  }
+  pendingMicRequests.add(conn.peer);
+  conn.send({ type: 'MIC_SLOT_GRANTED' });
+  // Safety net: if this remote never completes the call (denies the mic prompt without us hearing
+  // about it, closes the tab mid-handshake, etc.), don't leave the slot reserved forever.
+  setTimeout(() => { pendingMicRequests.delete(conn.peer); }, 15000);
+}
+function handleMicSlotRelease(conn){
+  pendingMicRequests.delete(conn.peer);
+}
+
+function renderMicChannelTabs(){
+  const wrap = document.getElementById('mic-channel-tabs');
+  wrap.innerHTML = '';
+  const makeTab = (id, label) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mic-tab' + (id === selectedMicChannel ? ' active' : '');
+    btn.textContent = label;
+    btn.onclick = () => { selectedMicChannel = id; renderMicChannelTabs(); renderMicChannelControls(); };
+    return btn;
+  };
+  wrap.appendChild(makeTab('host', '🎤 จอหลัก'));
+  micChannels.forEach((ch, id) => { if(ch.isRemote) wrap.appendChild(makeTab(id, '📱 ' + ch.label)); });
+}
+
+function renderMicChannelControls(){
+  let ch = micChannels.get(selectedMicChannel);
+  if(!ch){ selectedMicChannel = 'host'; ch = micChannels.get('host'); }
+  if(!ch){ ch = { label: 'จอหลัก', isRemote: false, nodes: null, values: newMicChannelValues(), stream: null }; micChannels.set('host', ch); }
+
+  const powerBtn = document.getElementById('btn-mic-power');
+  const kickBtn = document.getElementById('btn-mic-kick');
+  if(ch.isRemote){
+    powerBtn.style.display = 'none';
+    kickBtn.style.display = '';
+  } else {
+    powerBtn.style.display = '';
+    kickBtn.style.display = 'none';
+    powerBtn.textContent = ch.stream ? 'ปิดไมค์' : 'เปิดไมค์';
+    powerBtn.classList.toggle('on', !!ch.stream);
+  }
+
+  document.getElementById('mic-vol-slider').value = ch.values.vol;
+  document.getElementById('mic-echo-slider').value = ch.values.echo;
+  document.getElementById('mic-reverb-slider').value = ch.values.reverb;
+
   const row = document.getElementById('mic-eq-row');
   row.innerHTML = '';
   MIC_EQ_BANDS.forEach((band, i) => {
@@ -930,10 +1031,11 @@ function renderMicEqSliders(){
     const slider = document.createElement('input');
     slider.type = 'range';
     slider.className = 'mic-eq-slider';
-    slider.min = '-12'; slider.max = '12'; slider.value = '0'; slider.step = '1';
-    slider.dataset.bandIndex = i;
+    slider.min = '-12'; slider.max = '12'; slider.step = '1';
+    slider.value = ch.values.eq[i];
     slider.addEventListener('input', () => {
-      if(micNodes) micNodes.eqFilters[i].gain.value = parseFloat(slider.value);
+      ch.values.eq[i] = parseFloat(slider.value);
+      if(ch.nodes) ch.nodes.eqFilters[i].gain.value = ch.values.eq[i];
     });
     const label = document.createElement('span');
     label.className = 'mic-eq-label';
@@ -943,50 +1045,67 @@ function renderMicEqSliders(){
     row.appendChild(wrap);
   });
 }
-renderMicEqSliders();
+
+function updateMicHeaderButtonState(){
+  const anyOn = micChannels.size > 1 || !!micChannels.get('host')?.stream;
+  document.getElementById('btn-mic-toggle').classList.toggle('on', anyOn);
+}
 
 document.getElementById('btn-mic-toggle').onclick = () => {
   const panel = document.getElementById('mic-panel');
-  const btn = document.getElementById('btn-mic-toggle');
   const shown = panel.style.display !== 'none';
   panel.style.display = shown ? 'none' : 'flex';
-  btn.classList.toggle('on', !shown);
+  if(!shown){ renderMicChannelTabs(); renderMicChannelControls(); }
 };
 
 document.getElementById('btn-mic-power').onclick = async () => {
   const btn = document.getElementById('btn-mic-power');
-  if(micStream){
-    stopMic();
-    btn.textContent = 'เปิดไมค์';
-    btn.classList.remove('on');
-    document.getElementById('btn-mic-toggle').classList.remove('on');
+  const ch = micChannels.get('host');
+  if(ch && ch.stream){
+    stopHostMic();
     showToast('🎤 ปิดไมค์แล้ว');
   } else {
     btn.textContent = 'กำลังเชื่อมต่อ...';
-    const ok = await startMic();
-    if(ok){
-      btn.textContent = 'ปิดไมค์';
-      btn.classList.add('on');
-      document.getElementById('btn-mic-toggle').classList.add('on');
-      showToast('🎤 เปิดไมค์แล้ว — ปรับ EQ/เอฟเฟกต์ได้เลย');
-    } else {
-      btn.textContent = 'เปิดไมค์';
-    }
+    const ok = await startHostMic();
+    if(ok) showToast('🎤 เปิดไมค์แล้ว — ปรับ EQ/เอฟเฟกต์ได้เลย');
   }
+  renderMicChannelControls();
+  updateMicHeaderButtonState();
+};
+
+document.getElementById('btn-mic-kick').onclick = () => {
+  const ch = micChannels.get(selectedMicChannel);
+  if(!ch || !ch.isRemote) return;
+  if(ch.conn && ch.conn.open) ch.conn.send({ type: 'MIC_KICKED' });
+  const label = ch.label;
+  removeRemoteMicChannel(selectedMicChannel);
+  updateMicHeaderButtonState();
+  showToast('🔌 ตัดการเชื่อมต่อไมค์ "' + label + '" แล้ว');
 };
 
 document.getElementById('mic-vol-slider').addEventListener('input', (e) => {
-  if(micNodes) micNodes.master.gain.value = parseFloat(e.target.value) / 100;
+  const ch = micChannels.get(selectedMicChannel); if(!ch) return;
+  ch.values.vol = parseFloat(e.target.value);
+  if(ch.nodes) ch.nodes.master.gain.value = ch.values.vol / 100;
 });
 document.getElementById('mic-echo-slider').addEventListener('input', (e) => {
-  if(micNodes) micNodes.echoWet.gain.value = parseFloat(e.target.value) / 100;
+  const ch = micChannels.get(selectedMicChannel); if(!ch) return;
+  ch.values.echo = parseFloat(e.target.value);
+  if(ch.nodes) ch.nodes.echoWet.gain.value = ch.values.echo / 100;
 });
 document.getElementById('mic-reverb-slider').addEventListener('input', (e) => {
-  if(micNodes) micNodes.reverbWet.gain.value = parseFloat(e.target.value) / 100;
+  const ch = micChannels.get(selectedMicChannel); if(!ch) return;
+  ch.values.reverb = parseFloat(e.target.value);
+  if(ch.nodes) ch.nodes.reverbWet.gain.value = ch.values.reverb / 100;
 });
+
+renderMicChannelTabs();
+renderMicChannelControls();
+
 // Release the microphone hardware if the page is closed/reloaded while it's still on, rather than
-// leaving the browser's mic-in-use indicator on for no reason.
-window.addEventListener('beforeunload', () => { stopMic(); });
+// leaving the browser's mic-in-use indicator on for no reason. Remote mic calls close naturally with
+// the page too, but this makes sure the host's own mic track is explicitly stopped as well.
+window.addEventListener('beforeunload', () => { stopHostMic(); });
 
 function renderTempo(){
   document.getElementById('tempo-value').textContent = state.tempo.toFixed(2) + 'x';
@@ -1463,6 +1582,52 @@ function initPeer(){
       const i = connections.indexOf(conn);
       if(i > -1) connections.splice(i, 1);
       updateConnStatus();
+      // The remote vanishing (app closed, phone slept, wifi dropped) shouldn't leave its floating mic
+      // channel stuck here forever — free it the same as an explicit disconnect would.
+      pendingMicRequests.delete(conn.peer);
+      if(micChannels.has(conn.peer)){
+        removeRemoteMicChannel(conn.peer);
+        updateMicHeaderButtonState();
+      }
+    });
+  });
+
+  // A remote's floating mic arrives as a separate WebRTC media call layered on the same peer
+  // connection used for remote control — this is the host's end of that call.
+  peer.on('call', (call) => {
+    const remoteConn = connections.find(c => c.peer === call.peer);
+    if(!remoteConn){
+      // Not a recognized, already-joined remote — refuse rather than silently accepting audio from
+      // an unauthenticated source.
+      try{ call.close(); }catch(e){}
+      return;
+    }
+    // Enforce the mic limit here too, not only at the earlier REQUEST_MIC_SLOT stage — this is the
+    // actual point a mic channel gets created, so it's the authoritative place to guard against ever
+    // exceeding MAX_REMOTE_MICS, regardless of how the call arrived.
+    let activeRemoteMics = 0;
+    micChannels.forEach(ch => { if(ch.isRemote) activeRemoteMics++; });
+    if(!micChannels.has(call.peer) && activeRemoteMics >= MAX_REMOTE_MICS){
+      try{ call.close(); }catch(e){}
+      return;
+    }
+    call.answer(); // one-way: the host sends nothing back, it only receives this remote's mic audio
+    call.on('stream', (remoteStream) => {
+      const label = (call.metadata && call.metadata.name) || remoteConn._nickname || 'รีโมท';
+      addRemoteMicChannel(call.peer, label, remoteStream, call, remoteConn);
+      updateMicHeaderButtonState();
+    });
+    call.on('close', () => {
+      if(micChannels.has(call.peer)){
+        removeRemoteMicChannel(call.peer);
+        updateMicHeaderButtonState();
+      }
+    });
+    call.on('error', () => {
+      if(micChannels.has(call.peer)){
+        removeRemoteMicChannel(call.peer);
+        updateMicHeaderButtonState();
+      }
     });
   });
 
@@ -1521,7 +1686,7 @@ function renderConnectedDevices(){
 
 // Guests can queue/remove songs and adjust tempo. Admins get full remote control,
 // equivalent to standing at the main screen — matches what a scanned Admin QR grants.
-const GUEST_ALLOWED = new Set(['ADD_SONG', 'REMOVE_SONG', 'TEMPO_UP', 'TEMPO_DOWN', 'VOLUME_UP', 'VOLUME_DOWN', 'TOGGLE_MUTE', 'PLAY_SOUND_EFFECT']);
+const GUEST_ALLOWED = new Set(['ADD_SONG', 'REMOVE_SONG', 'TEMPO_UP', 'TEMPO_DOWN', 'VOLUME_UP', 'VOLUME_DOWN', 'TOGGLE_MUTE', 'PLAY_SOUND_EFFECT', 'REQUEST_MIC_SLOT', 'MIC_SLOT_RELEASE']);
 const ADMIN_ALLOWED = new Set([
   ...GUEST_ALLOWED,
   'SKIP', 'PREV', 'TOGGLE_PLAY', 'INSERT_NEXT', 'MOVE_UP', 'MOVE_DOWN', 'REORDER_BEFORE', 'LOAD_PLAYLIST', 'PLAY_SONG'
@@ -1557,6 +1722,8 @@ function handleRemoteMessage(msg, conn){
     case 'REORDER_BEFORE': reorderBefore(msg.draggedId, msg.targetId); break;
     case 'LOAD_PLAYLIST': loadPlaylistIntoQueue(msg.name); break;
     case 'PLAY_SONG': playSongId(msg.id); break;
+    case 'REQUEST_MIC_SLOT': handleMicSlotRequest(conn, msg.name); break;
+    case 'MIC_SLOT_RELEASE': handleMicSlotRelease(conn); break;
   }
 }
 
