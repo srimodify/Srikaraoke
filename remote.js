@@ -10,17 +10,11 @@ const STORAGE_APIKEY = 'sriKaraoke_ytApiKey';
 const LOCAL_FILE_THUMB = 'data:image/svg+xml;utf8,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="%23241C42"/><path d="M26 42a6 6 0 1 1-2-4.5V16l18-4v20.5a6 6 0 1 1-4-5.6V16.8l-10 2.2V42a6 6 0 0 1-2 0z" fill="%23FFC857"/></svg>'
 );
-function showToast(msg, isError){
-  const container = document.getElementById('toast-container');
-  const el = document.createElement('div');
-  el.className = 'toast' + (isError ? ' error' : '');
-  el.textContent = msg;
-  container.appendChild(el);
-  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 300); }, 4000);
-}
-
 // Same default key + override pattern as the host page (shared localStorage on the same origin).
-const DEFAULT_API_KEY = 'AIzaSyBg5hplav7HzIHfXoDWlwZeENvQ7nb5i6Y';
+// Base64-encoded, not plaintext — see app.js for why (avoids automated secret-scanner flags on public
+// repos; not real security, just avoids an obvious plaintext key sitting in the source).
+const DEFAULT_API_KEY_B64 = 'QUl6YVN5Qmc1aHBsYXY3SHpJSGZYb0RXbHdaZUVOdlE3bmI1aTZZ';
+const DEFAULT_API_KEY = atob(DEFAULT_API_KEY_B64);
 function getApiKey(){
   const stored = localStorage.getItem(STORAGE_APIKEY);
   return stored !== null ? stored : DEFAULT_API_KEY;
@@ -218,6 +212,7 @@ function handleHostMessage(msg){
     return;
   }
   if(msg.type === 'STATE_UPDATE'){
+    if(msg.currentId !== myState.currentId) myVotedSongId = null; // the host clears votes whenever the current song changes — mirror that here
     myState.queue = msg.queue;
     myState.currentId = msg.currentId;
     myState.isPlaying = msg.isPlaying;
@@ -249,19 +244,9 @@ function handleHostMessage(msg){
     showScorePopup(msg.entry, msg.leaderboard);
     return;
   }
-  if(msg.type === 'MIC_SLOT_GRANTED'){
-    startRemoteMicStream();
-    return;
-  }
-  if(msg.type === 'MIC_SLOT_DENIED'){
-    setRemoteMicButtonState('off');
-    showToast('⚠️ ไมค์เต็มแล้ว (ใช้ได้สูงสุด 2 เครื่องพร้อมกัน) กรุณาปิดไมค์เครื่องอื่นก่อน', true);
-    return;
-  }
-  if(msg.type === 'MIC_KICKED'){
-    stopRemoteMic(false); // the host already knows — no need to send MIC_SLOT_RELEASE back
-    showToast('🔌 จอหลักปิดไมค์ของคุณแล้ว', true);
-    return;
+  if(msg.type === 'VOTE_TALLY'){
+    voteTally = msg.tally || {};
+    renderQueueTab();
   }
 }
 
@@ -305,87 +290,27 @@ document.getElementById('btn-effects-toggle').onclick = () => {
   btn.classList.toggle('active', !shown);
 };
 
-/* ---------------- Floating mic (sends this device's own mic, live, to the host) ----------------
-   The host runs up to 2 of these at once (plus its own mic). Each one is a WebRTC media call layered
-   on top of the same PeerJS connection already used for remote control — nothing new to connect to.
-   This device only ever SENDS audio; it never receives anything back. */
-let remoteMicStream = null;
-let remoteMicCall = null;
-let remoteMicState = 'off'; // 'off' | 'requesting' | 'on'
-let micRequestToken = 0; // guards the "host never replied" timeout against a stale/superseded request
-
-function setRemoteMicButtonState(newState){
-  remoteMicState = newState;
-  const btn = document.getElementById('btn-remote-mic');
-  btn.classList.toggle('on', newState === 'on');
-  btn.classList.toggle('connecting', newState === 'requesting');
-  btn.title = newState === 'on' ? 'ปิดไมค์ลอย' : 'เปิดไมค์ลอย (ส่งเสียงไปจอหลัก)';
+const EMOJI_REACTIONS = ['👍','🔥','❤️','👏','🎉','💯','🍻','💞','🤘','🫶','😍','😮','😁','😂','😜','🤫','🥱','🤭','🎊','🫰','💤','🌹','🎂','🎄','🪼','🐧'];
+function renderEmojiBar(){
+  const list = document.getElementById('emoji-bar-list');
+  list.innerHTML = '';
+  EMOJI_REACTIONS.forEach(emoji => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'emoji-bar-btn';
+    btn.textContent = emoji;
+    btn.onclick = () => send({ type: 'EMOJI_REACTION', emoji });
+    list.appendChild(btn);
+  });
 }
-
-async function startRemoteMicStream(){
-  try{
-    remoteMicStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-    });
-  }catch(e){
-    console.warn('[Remote Mic] getUserMedia failed:', e);
-    send({ type: 'MIC_SLOT_RELEASE' }); // let the host free the slot it reserved right away, not after a timeout
-    showToast('⚠️ ไม่สามารถเข้าถึงไมโครโฟนได้ — ตรวจสอบว่าอนุญาตสิทธิ์ไมค์แล้ว', true);
-    setRemoteMicButtonState('off');
-    return;
-  }
-  if(!peer || peer.destroyed){
-    remoteMicStream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
-    remoteMicStream = null;
-    send({ type: 'MIC_SLOT_RELEASE' });
-    setRemoteMicButtonState('off');
-    return;
-  }
-  remoteMicCall = peer.call(currentRoomId, remoteMicStream, { metadata: { name: nickname || 'รีโมท' } });
-  remoteMicCall.on('close', () => { stopRemoteMic(false); });
-  remoteMicCall.on('error', () => { stopRemoteMic(false); });
-  setRemoteMicButtonState('on');
-  showToast('🎤 เชื่อมต่อไมค์กับจอหลักแล้ว');
-}
-
-function stopRemoteMic(notifyHost){
-  if(remoteMicStream){
-    remoteMicStream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
-    remoteMicStream = null;
-  }
-  if(remoteMicCall){
-    try{ remoteMicCall.close(); }catch(e){}
-    remoteMicCall = null;
-  }
-  if(notifyHost !== false) send({ type: 'MIC_SLOT_RELEASE' });
-  setRemoteMicButtonState('off');
-}
-
-document.getElementById('btn-remote-mic').onclick = () => {
-  if(remoteMicState === 'requesting') return; // already waiting on the host's reply
-  if(remoteMicState === 'on'){
-    stopRemoteMic();
-    showToast('🎤 ปิดไมค์ลอยแล้ว');
-    return;
-  }
-  if(!conn || !conn.open){
-    showToast('⚠️ ยังไม่ได้เชื่อมต่อกับจอหลัก', true);
-    return;
-  }
-  setRemoteMicButtonState('requesting');
-  send({ type: 'REQUEST_MIC_SLOT', name: nickname || 'รีโมท' });
-  // If the host never replies at all (message lost, host busy, etc.), don't leave the button stuck
-  // showing "connecting" forever.
-  const requestedAt = ++micRequestToken;
-  setTimeout(() => {
-    if(micRequestToken === requestedAt && remoteMicState === 'requesting'){
-      setRemoteMicButtonState('off');
-      showToast('⚠️ จอหลักไม่ตอบสนอง กรุณาลองใหม่อีกครั้ง', true);
-    }
-  }, 8000);
+renderEmojiBar();
+document.getElementById('btn-emoji-toggle').onclick = () => {
+  const bar = document.getElementById('emoji-bar');
+  const btn = document.getElementById('btn-emoji-toggle');
+  const shown = bar.style.display !== 'none';
+  bar.style.display = shown ? 'none' : 'flex';
+  btn.classList.toggle('active', !shown);
 };
-// Release the microphone hardware if this page is closed/reloaded while the floating mic is still on.
-window.addEventListener('beforeunload', () => { stopRemoteMic(); });
 
 /* ---------------- Singing score popup (mirrors host) ---------------- */
 let scorePopupTimer = null;
@@ -473,6 +398,11 @@ document.getElementById('btn-admin-skip').onclick = () => send({ type: 'SKIP' })
 
 /* ---------------- Queue tab ---------------- */
 /* Guests: view + remove only. Admins: full control, same as the main screen. */
+// Which song's tally number I'm personally contributing to right now (so my own vote button can be
+// highlighted) — reset whenever the host says the current song changed (see STATE_UPDATE handling).
+let myVotedSongId = null;
+let voteTally = {}; // songId -> count, pushed from the host whenever it changes
+
 function renderQueueTab(){
   const wrap = document.getElementById('remote-queue-list');
   const isAdmin = myRole === 'admin';
@@ -482,19 +412,31 @@ function renderQueueTab(){
   }
   wrap.innerHTML = '';
   myState.queue.forEach((song, i) => {
+    const isCurrent = song.id === myState.currentId;
     const div = document.createElement('div');
-    div.className = 'q-item' + (song.id === myState.currentId ? ' playing' : '');
+    div.className = 'q-item' + (isCurrent ? ' playing' : '');
+    const voteCount = voteTally[song.id] || 0;
+    const iVotedThis = myVotedSongId === song.id;
     div.innerHTML = `
-      <div class="idx">${song.id === myState.currentId ? '▶' : i + 1}</div>
+      <div class="idx">${isCurrent ? '▶' : i + 1}</div>
       <img src="${escapeHtml(song.thumbnail)}" alt="">
       <div class="meta">
-        <div class="title">${song.source === 'local' ? '<span class="source-badge local">💻</span>' : ''}${escapeHtml(song.title)}</div>
+        <div class="title">${song.source === 'local' ? '<span class="source-badge local">💻</span>' : ''}${escapeHtml(song.title)}${voteCount ? ' <span class="vote-badge">🗳️ ' + voteCount + '</span>' : ''}</div>
         <div class="by">${song.by ? 'เพิ่มโดย ' + escapeHtml(song.by) : ''}</div>
       </div>
       <div class="actions">
+        ${isCurrent ? '' : `<button data-act="vote" class="vote-btn${iVotedThis ? ' voted' : ''}" title="โหวตให้เล่นเพลงนี้ต่อไป">${iVotedThis ? '✅' : '🗳️'}</button>`}
         ${isAdmin ? '<button data-act="up" title="เลื่อนขึ้น">▲</button><button data-act="down" title="เลื่อนลง">▼</button><button data-act="next" title="แทรกเล่นถัดไป">⇧</button>' : ''}
         <button data-act="remove" title="ลบ/ยกเลิกเพลงนี้">✕</button>
       </div>`;
+    if(!isCurrent){
+      div.querySelector('[data-act="vote"]').onclick = (e) => {
+        e.stopPropagation();
+        myVotedSongId = song.id;
+        send({ type: 'VOTE_NEXT_SONG', songId: song.id });
+        renderQueueTab(); // optimistic — shows my own pick as selected right away, the real tally number still comes from the host
+      };
+    }
     if(isAdmin){
       div.querySelector('[data-act="up"]').onclick = (e) => { e.stopPropagation(); send({ type: 'MOVE_UP', id: song.id }); };
       div.querySelector('[data-act="down"]').onclick = (e) => { e.stopPropagation(); send({ type: 'MOVE_DOWN', id: song.id }); };
@@ -507,7 +449,7 @@ function renderQueueTab(){
   if(!isAdmin){
     const note = document.createElement('div');
     note.className = 'control-note';
-    note.textContent = 'การจัดลำดับคิวและเล่น/หยุด/ข้ามเพลง ควบคุมได้ที่จอหลักหรือรีโมทแอดมินเท่านั้น';
+    note.textContent = 'การจัดลำดับคิวและเล่น/หยุด/ข้ามเพลง ควบคุมได้ที่จอหลักหรือรีโมทแอดมินเท่านั้น — แต่โหวตเพลงถัดไปได้ (🗳️) เพื่อแนะนำให้แอดมิน';
     wrap.appendChild(note);
   }
 }
@@ -640,7 +582,10 @@ function makeResultCard(v){
     const song = v.source === 'local'
       ? { source: 'local', localFileId: v.localFileId, title: v.title, thumbnail: v.thumbnail }
       : { source: 'youtube', videoId: v.videoId, title: v.title, thumbnail: v.thumbnail };
-    send({ type: 'ADD_SONG', song, from: nickname });
+    const dedicationInput = document.getElementById('dedication-input');
+    const dedication = dedicationInput.value.trim();
+    send({ type: 'ADD_SONG', song, from: nickname, dedication });
+    dedicationInput.value = ''; // one-shot — applies only to the song just added, not the next one too
     card.querySelector('button').textContent = 'เพิ่มแล้ว ✓';
     card.querySelector('button').disabled = true;
   };

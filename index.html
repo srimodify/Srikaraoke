@@ -37,6 +37,40 @@ body.light-theme{
   --text-dim:#6E6690;
   --line:#DDD6EC;
 }
+/* Festive themes — same remap mechanism as light theme, just different palettes instead. */
+body.birthday-theme{
+  --ink:#2D0A3D;
+  --panel:#4A1259;
+  --panel-2:#5C1A6E;
+  --gold:#FFD700;
+  --magenta:#FF2E88;
+  --teal:#00E5A0;
+  --text:#FFF5FB;
+  --text-dim:#E8B8DC;
+  --line:#7A2E8C;
+}
+body.newyear-theme{
+  --ink:#1A0F2E;
+  --panel:#2D1B4E;
+  --panel-2:#3D2563;
+  --gold:#FFD700;
+  --magenta:#E63946;
+  --teal:#2EE6D6;
+  --text:#FFF8E7;
+  --text-dim:#D4C5E8;
+  --line:#5C3D8C;
+}
+body.songkran-theme{
+  --ink:#042A3D;
+  --panel:#0A4A63;
+  --panel-2:#0F5C7A;
+  --gold:#FFD966;
+  --magenta:#FF8FAB;
+  --teal:#5FD4E8;
+  --text:#F0FBFF;
+  --text-dim:#A8D8E8;
+  --line:#2A7A94;
+}
 *{box-sizing:border-box;}
 html,body{height:100%;}
 body{
@@ -237,80 +271,6 @@ main.queue-hidden #queue-panel{display:none;}
 }
 .effects-empty-note{color:var(--text-dim);font-size:12px;text-align:center;padding:10px;text-shadow:0 1px 4px rgba(0,0,0,.8);}
 
-/* ---------- Mic + vocal effects panel ---------- */
-#btn-mic-toggle.on{color:var(--gold);}
-#btn-mic-toggle.on span:first-child{filter:drop-shadow(0 0 4px var(--gold));}
-#mic-panel{
-  position:absolute;top:var(--header-h,0px);left:50%;
-  transform:translateX(-50%);
-  z-index:9;
-  width:min(94%, 640px);
-  background:rgba(27,21,51,.4);
-  backdrop-filter:blur(4px);
-  border:1px solid rgba(255,255,255,.15);
-  border-top:none;
-  border-radius:0 0 16px 16px;
-  padding:16px 18px 14px;
-  box-sizing:border-box;
-  display:flex;flex-direction:column;gap:14px;
-}
-.mic-panel-header{
-  display:flex;align-items:center;justify-content:space-between;gap:10px;
-}
-.mic-panel-title{
-  font-family:'Kanit',sans-serif;font-weight:600;font-size:14px;color:#fff;
-  text-shadow:0 1px 6px rgba(0,0,0,.8);
-}
-#btn-mic-power{
-  background:var(--panel-2);border:1px solid var(--line);color:var(--text);
-  border-radius:999px;padding:6px 16px;font-size:13px;cursor:pointer;
-  font-family:'Sarabun',sans-serif;transition:background .15s,border-color .15s,color .15s;
-}
-#btn-mic-power.on{background:var(--magenta);border-color:var(--magenta);color:#fff;}
-#btn-mic-kick{
-  background:var(--magenta);border:1px solid var(--magenta);color:#fff;
-  border-radius:999px;padding:6px 14px;font-size:12px;cursor:pointer;
-  font-family:'Sarabun',sans-serif;
-}
-.mic-channel-tabs{display:flex;gap:6px;flex-wrap:wrap;}
-.mic-tab{
-  background:var(--panel-2);border:1px solid var(--line);color:var(--text-dim);
-  border-radius:999px;padding:5px 14px;font-size:12px;cursor:pointer;
-  font-family:'Sarabun',sans-serif;white-space:nowrap;
-  transition:background .15s,color .15s,border-color .15s;
-}
-.mic-tab.active{background:var(--gold);border-color:var(--gold);color:#1B1533;font-weight:600;}
-.mic-eq-row{
-  display:flex;align-items:stretch;gap:10px;
-  padding:0 2px;
-}
-#mic-eq-row{
-  display:flex;justify-content:space-between;gap:4px;
-  flex:1;min-width:0;
-}
-.mic-eq-band{
-  display:flex;flex-direction:column;align-items:center;gap:4px;
-  flex:1;min-width:0;
-}
-.mic-vol-band{
-  flex:0 0 auto;
-  padding:4px 8px;
-  background:rgba(255,200,87,.08);
-  border:1px solid rgba(255,200,87,.3);
-  border-radius:8px;
-}
-.mic-eq-divider{width:1px;background:rgba(255,255,255,.15);flex-shrink:0;}
-.mic-eq-slider{
-  writing-mode:vertical-lr;direction:rtl;
-  width:18px;height:90px;
-  accent-color:var(--gold);
-  cursor:pointer;
-}
-.mic-eq-label{font-size:9px;color:var(--text-dim);white-space:nowrap;}
-.mic-fx-row{display:flex;gap:20px;flex-wrap:wrap;}
-.mic-fx-control{flex:1;min-width:140px;display:flex;flex-direction:column;gap:6px;}
-.mic-fx-control label{font-size:12px;color:var(--text-dim);}
-.mic-fx-control input[type="range"]{width:100%;accent-color:var(--gold);cursor:pointer;}
 #player-wrap{
   width:100%;height:100%;
   position:relative;
@@ -338,6 +298,13 @@ main.queue-hidden #queue-panel{display:none;}
   transition:opacity .4s ease;
 }
 .mp3-bg.has-cover{opacity:1;}
+/* Random-looking (but consistent per song) gradient patterns used when a file has no embedded cover art,
+   so the "now playing" screen isn't just a plain flat background every time. */
+.mp3-bg.pattern-1{opacity:1;background:linear-gradient(135deg, #FF3D81 0%, #241C42 60%, #0F0C1E 100%);}
+.mp3-bg.pattern-2{opacity:1;background:linear-gradient(135deg, #2EE6D6 0%, #1B1533 60%, #0F0C1E 100%);}
+.mp3-bg.pattern-3{opacity:1;background:radial-gradient(circle at 30% 20%, #FFC857 0%, #4A1259 50%, #0F0C1E 100%);}
+.mp3-bg.pattern-4{opacity:1;background:linear-gradient(160deg, #5C1A6E 0%, #0A4A63 50%, #0F0C1E 100%);}
+.mp3-bg.pattern-5{opacity:1;background:conic-gradient(from 180deg at 50% 50%, #FF3D81, #FFC857, #2EE6D6, #5C1A6E, #FF3D81);}
 .mp3-info{
   position:relative;z-index:1;
   display:flex;flex-direction:column;align-items:center;gap:5px;
@@ -590,6 +557,23 @@ main.queue-hidden #queue-panel{display:none;}
 }
 
 /* Small blinking LED-style lights scattered around the edges, like string lights around a karaoke room */
+.theme-decorations{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden;}
+.theme-decorations .deco{
+  position:absolute;bottom:-60px;font-size:42px;opacity:.85;
+  animation:deco-float 14s linear infinite;
+  filter:drop-shadow(0 4px 10px rgba(0,0,0,.3));
+}
+.deco.d1{left:8%;animation-delay:0s;animation-duration:13s;}
+.deco.d2{left:22%;animation-delay:3s;animation-duration:16s;}
+.deco.d3{left:40%;animation-delay:6s;animation-duration:12s;}
+.deco.d4{left:60%;animation-delay:1.5s;animation-duration:15s;}
+.deco.d5{left:78%;animation-delay:4.5s;animation-duration:13.5s;}
+.deco.d6{left:90%;animation-delay:8s;animation-duration:17s;}
+@keyframes deco-float{
+  0%{transform:translateY(0) translateX(0) rotate(-4deg);}
+  50%{transform:translateY(-55vh) translateX(18px) rotate(4deg);}
+  100%{transform:translateY(-115vh) translateX(-10px) rotate(-4deg);}
+}
 .led-lights{position:absolute;inset:0;z-index:1;pointer-events:none;}
 .led{
   position:absolute;
@@ -675,12 +659,90 @@ body.power-saving #next-up-bar{ animation: none !important; opacity:1 !important
 }
 
 /* ---------- singing score popup ---------- */
+/* ---------- Emoji reaction panel (host) — same center-top position/style the mic EQ panel used ---------- */
+#emoji-panel{
+  position:absolute;top:var(--header-h,0px);left:50%;
+  transform:translateX(-50%);
+  z-index:9;
+  width:min(94%, 640px);
+  background:rgba(27,21,51,.4);
+  backdrop-filter:blur(4px);
+  border:1px solid rgba(255,255,255,.15);
+  border-top:none;
+  border-radius:0 0 16px 16px;
+  padding:16px 18px 18px;
+  box-sizing:border-box;
+  display:flex;flex-direction:column;gap:14px;
+}
+.emoji-panel-header{display:flex;align-items:center;justify-content:center;}
+.emoji-panel-title{
+  font-family:'Kanit',sans-serif;font-weight:600;font-size:14px;color:#fff;
+  text-shadow:0 1px 6px rgba(0,0,0,.8);
+}
+.emoji-grid{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;}
+.emoji-grid button{
+  font-size:26px;width:50px;height:50px;border-radius:12px;
+  background:var(--panel-2);border:1px solid var(--line);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .1s ease,background .15s ease;
+}
+.emoji-grid button:hover{background:var(--gold);}
+.emoji-grid button:active{transform:scale(.88);}
+.emoji-reaction{
+  position:fixed;bottom:12%;z-index:300;pointer-events:none;
+  font-size:48px;
+  animation:like-float 2.2s ease-out forwards;
+  filter:drop-shadow(0 4px 10px rgba(0,0,0,.4));
+}
+@keyframes like-float{
+  0%{ transform:translateY(0) scale(.5); opacity:0; }
+  15%{ transform:translateY(-20px) scale(1.15); opacity:1; }
+  100%{ transform:translateY(-230px) scale(1); opacity:0; }
+}
+.confetti-container{position:fixed;inset:0;z-index:300;pointer-events:none;overflow:hidden;}
+.confetti-piece{
+  position:absolute;top:-20px;width:9px;height:15px;
+  animation-name:confetti-fall;animation-timing-function:linear;animation-fill-mode:forwards;
+  opacity:.95;transform:rotate(var(--rot,0deg));
+}
+@keyframes confetti-fall{
+  to{ transform:translateY(112vh) rotate(calc(var(--rot,0deg) + 640deg)); opacity:.25; }
+}
 .score-popup-overlay{
   display:none;
   position:fixed;inset:0;z-index:400;
   align-items:center;justify-content:center;
   background:rgba(6,4,15,.7);
   cursor:pointer;
+}
+#night-summary-overlay{
+  position:fixed;inset:0;z-index:410;
+  align-items:center;justify-content:center;
+  background:rgba(6,4,15,.8);
+  display:flex;
+}
+.night-summary-box{
+  background:linear-gradient(160deg, #241C42 0%, #1B1533 100%);
+  border:1px solid var(--line);
+  border-radius:24px;
+  padding:32px 36px;
+  text-align:center;
+  width:min(92vw, 420px);
+  box-shadow:0 20px 60px rgba(0,0,0,.5);
+}
+.night-summary-title{
+  font-family:'Kanit',sans-serif;font-weight:700;font-size:22px;color:#fff;margin-bottom:20px;
+}
+.night-summary-stats{display:flex;flex-direction:column;gap:12px;margin-bottom:24px;}
+.ns-row{
+  display:flex;flex-direction:column;gap:3px;text-align:left;
+  background:rgba(255,255,255,.04);border-radius:12px;padding:10px 14px;
+}
+.ns-label{font-size:12px;color:var(--text-dim);}
+.ns-value{font-size:15px;font-weight:600;color:var(--gold);}
+#btn-close-night-summary{
+  background:var(--gold);color:#1B1533;border:none;border-radius:999px;
+  padding:10px 28px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Sarabun',sans-serif;
 }
 .score-popup-box{
   background:linear-gradient(160deg, #241C42 0%, #1B1533 100%);
@@ -943,6 +1005,11 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
 .q-item .source-badge.local{font-size:0;padding:0;width:20px;height:20px;line-height:20px;
   text-align:center;background:var(--panel);border:1px solid var(--line);margin-right:8px;}
 .q-item .source-badge.local::before{content:"💻";font-size:11px;}
+.vote-badge{
+  display:inline-block;font-size:10px;font-weight:700;
+  padding:2px 7px;border-radius:999px;margin-left:6px;vertical-align:middle;
+  background:rgba(46,230,214,.18);color:var(--teal);white-space:nowrap;
+}
 .result-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0;}
 .result-actions button{
   background:var(--magenta);border:none;color:#fff;border-radius:9px;
@@ -1148,6 +1215,12 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
 .settings-row-desc{font-size:12px;color:var(--text-dim);margin-top:3px;}
 .settings-toggle-row .icon-btn{flex-shrink:0;min-width:52px;justify-content:center;}
 .settings-toggle-row .icon-btn.accent{background:var(--gold);color:#1B1533;}
+.theme-select{
+  background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:10px;padding:8px 12px;font-size:13px;cursor:pointer;
+  font-family:'Sarabun',sans-serif;flex-shrink:0;
+}
+.theme-select:focus-visible{outline:2px solid var(--gold);}
 
 /* ---------- PORTRAIT LAYOUT ---------- */
 @media (orientation: portrait){
@@ -1422,6 +1495,13 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
 <div class="score-popup-overlay" id="score-popup-overlay">
   <div class="score-popup-box" id="score-popup-box"></div>
 </div>
+<div id="night-summary-overlay" style="display:none;">
+  <div class="night-summary-box">
+    <div class="night-summary-title">🌙 สรุปค่ำคืนนี้</div>
+    <div class="night-summary-stats" id="night-summary-stats"></div>
+    <button id="btn-close-night-summary">ปิด แล้วเริ่มงานใหม่</button>
+  </div>
+</div>
 <div id="https-warning">⚠️ กำลังเปิดผ่าน HTTP — การเชื่อมต่อรีโมทอาจไม่เสถียร แนะนำให้เปิดผ่าน HTTPS</div>
 <div id="app">
   <header>
@@ -1434,7 +1514,7 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
         <button class="icon-btn" id="btn-search"><span>🔎</span><span class="label">ค้นหาเพลง</span></button>
         <button class="icon-btn accent" id="btn-qr"><span>📱</span><span class="label">รีโมทมือถือ</span></button>
         <button class="icon-btn" id="btn-chords" style="display:none;"><span>🎸</span><span class="label">คอร์ด</span></button>
-        <button class="icon-btn" id="btn-mic-toggle" title="เปิด/ปิดแผงไมค์ + เอฟเฟกต์เสียงร้อง"><span>🎤</span><span class="label">ไมค์</span></button>
+        <button class="icon-btn" id="btn-emoji-toggle" title="ส่งอิโมจิ"><span>😀</span><span class="label">อิโมจิ</span></button>
         <button class="icon-btn" id="btn-settings"><span>⚙️</span><span class="label">ตั้งค่า</span></button>
         <button class="icon-btn" id="btn-fullscreen"><span>⛶</span><span class="label">เต็มจอ</span></button>
         <button class="icon-btn" id="btn-logout"><span>🚪</span><span class="label">ออกจากระบบ</span></button>
@@ -1506,6 +1586,10 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
             <span class="led l5"></span><span class="led l6"></span><span class="led l7"></span><span class="led l8"></span>
             <span class="led l9"></span><span class="led l10"></span><span class="led l11"></span><span class="led l12"></span>
           </div>
+          <div class="theme-decorations" id="theme-decorations" style="display:none;">
+            <span class="deco d1"></span><span class="deco d2"></span><span class="deco d3"></span>
+            <span class="deco d4"></span><span class="deco d5"></span><span class="deco d6"></span>
+          </div>
           <img id="screensaver-logo" src="icons/icon-512.png" alt="">
           <div class="idle-content">
             <button id="btn-start-audio">🎤 กดเริ่มระบบ (ครั้งเดียวก่อนเริ่มงาน)</button>
@@ -1522,31 +1606,11 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
         <div id="effects-panel-list"></div>
       </div>
       <audio id="sfx-player"></audio>
-      <div id="mic-panel" style="display:none;">
-        <div class="mic-panel-header">
-          <span class="mic-panel-title">🎤 ไมค์ + เอฟเฟกต์เสียงร้อง</span>
-          <button id="btn-mic-power">เปิดไมค์</button>
-          <button id="btn-mic-kick" style="display:none;">🔌 ตัดการเชื่อมต่อ</button>
+      <div id="emoji-panel" style="display:none;">
+        <div class="emoji-panel-header">
+          <span class="emoji-panel-title">😀 ส่งอิโมจิ</span>
         </div>
-        <div class="mic-channel-tabs" id="mic-channel-tabs"></div>
-        <div class="mic-eq-row">
-          <div class="mic-eq-band mic-vol-band">
-            <input type="range" class="mic-eq-slider" id="mic-vol-slider" min="0" max="200" value="100">
-            <span class="mic-eq-label">Vol</span>
-          </div>
-          <div class="mic-eq-divider"></div>
-          <div class="mic-eq-row" id="mic-eq-row"></div>
-        </div>
-        <div class="mic-fx-row">
-          <div class="mic-fx-control">
-            <label for="mic-echo-slider">🔁 เสียงก้อง (Echo)</label>
-            <input type="range" id="mic-echo-slider" min="0" max="100" value="0">
-          </div>
-          <div class="mic-fx-control">
-            <label for="mic-reverb-slider">🌫️ เสียงล้อม (Reverb)</label>
-            <input type="range" id="mic-reverb-slider" min="0" max="100" value="0">
-          </div>
-        </div>
+        <div class="emoji-grid" id="emoji-grid"></div>
       </div>
       <div id="chord-bar" style="display:none;">
         <div class="chord-track" id="chord-track"></div>
@@ -1794,10 +1858,16 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
       <h3>ธีม</h3>
       <div class="settings-toggle-row">
         <div>
-          <div class="settings-row-title">🌙 โหมดมืด/สว่าง</div>
-          <div class="settings-row-desc">สลับสีธีมของเมนูและหน้าต่างต่างๆ (จอวิดีโอยังคงมืดเหมือนเดิมเสมอ)</div>
+          <div class="settings-row-title">🎨 ธีมสี</div>
+          <div class="settings-row-desc">เลือกธีมสีของเมนูและหน้าต่างต่างๆ (จอวิดีโอยังคงมืดเหมือนเดิมเสมอ)</div>
         </div>
-        <button class="icon-btn" id="btn-theme-toggle">มืด</button>
+        <select class="theme-select" id="theme-select">
+          <option value="dark">🌙 มืด</option>
+          <option value="light">☀️ สว่าง</option>
+          <option value="birthday">🎂 วันเกิด</option>
+          <option value="newyear">🎆 ปีใหม่</option>
+          <option value="songkran">💦 สงกรานต์</option>
+        </select>
       </div>
     </div>
 

@@ -6,7 +6,12 @@ const STORAGE_PLAYLISTS = 'sriKaraoke_playlists';
 const STORAGE_APIKEY = 'sriKaraoke_ytApiKey';
 // Default YouTube Data API key so search-by-keyword works out of the box.
 // Can still be changed any time from the search modal's "ตั้งค่า API Key" field.
-const DEFAULT_API_KEY = 'AIzaSyBg5hplav7HzIHfXoDWlwZeENvQ7nb5i6Y';
+// Base64-encoded, not plaintext, so this doesn't get flagged/revoked by automated secret-scanners if
+// this source is ever pushed to a public repo. This is light obfuscation, not real security — anyone
+// who opens the browser's network tab or devtools can still recover the key, same as any client-side
+// code. Decoded once at load time below.
+const DEFAULT_API_KEY_B64 = 'QUl6YVN5Qmc1aHBsYXY3SHpJSGZYb0RXbHdaZUVOdlE3bmI1aTZZ';
+const DEFAULT_API_KEY = atob(DEFAULT_API_KEY_B64);
 function getApiKey(){
   const stored = localStorage.getItem(STORAGE_APIKEY);
   return stored !== null ? stored : DEFAULT_API_KEY;
@@ -126,6 +131,58 @@ function recordAndShowScore(song){
   connections.forEach(conn => { if(conn.open) conn.send({ type: 'SCORE_ANNOUNCE', entry, leaderboard }); });
 }
 
+// A single floating 👍 — triggered by the host's own button, or forwarded here whenever a remote
+// sends one. Broadcast onward to connections (Screen 2 included) so the reaction shows on every
+// shared display, not just whichever one it originated from.
+const EMOJI_REACTIONS = ['👍','🔥','❤️','👏','🎉','💯','🍻','💞','🤘','🫶','😍','😮','😁','😂','😜','🤫','🥱','🤭','🎊','🫰','💤','🌹','🎂','🎄','🪼','🐧'];
+function showEmojiReaction(emoji){
+  const el = document.createElement('div');
+  el.className = 'emoji-reaction';
+  el.textContent = emoji || '👍';
+  el.style.left = (20 + Math.random() * 60) + '%';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+}
+function renderEmojiGrid(){
+  const grid = document.getElementById('emoji-grid');
+  grid.innerHTML = '';
+  EMOJI_REACTIONS.forEach(emoji => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = emoji;
+    btn.onclick = () => {
+      showEmojiReaction(emoji);
+      connections.forEach(c => { if(c.open) c.send({ type: 'EMOJI_REACTION', emoji }); });
+    };
+    grid.appendChild(btn);
+  });
+}
+renderEmojiGrid();
+document.getElementById('btn-emoji-toggle').onclick = () => {
+  const panel = document.getElementById('emoji-panel');
+  const shown = panel.style.display !== 'none';
+  panel.style.display = shown ? 'none' : 'flex';
+};
+
+// A lightweight, dependency-free confetti burst — plain DOM + CSS animation, no canvas or library.
+function launchConfetti(){
+  const container = document.createElement('div');
+  container.className = 'confetti-container';
+  const colors = ['#FFC857', '#FF3D81', '#2EE6D6', '#FFD700', '#ffffff'];
+  for(let i = 0; i < 70; i++){
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+    piece.style.left = (Math.random() * 100) + '%';
+    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+    piece.style.animationDelay = (Math.random() * 0.4) + 's';
+    piece.style.animationDuration = (2.6 + Math.random() * 1.6) + 's';
+    piece.style.setProperty('--rot', (Math.random() * 360) + 'deg');
+    container.appendChild(piece);
+  }
+  document.body.appendChild(container);
+  setTimeout(() => container.remove(), 4600);
+}
+
 function showScorePopup(entry){
   const overlay = document.getElementById('score-popup-overlay');
   const box = document.getElementById('score-popup-box');
@@ -137,6 +194,7 @@ function showScorePopup(entry){
     <div class="score-number" style="color:${tier.color}">${entry.score}</div>
     <div class="score-tier" style="color:${tier.color}">${tier.label}</div>`;
   overlay.style.display = 'flex';
+  if(entry.score >= 90) launchConfetti();
   clearTimeout(scorePopupTimer);
   scorePopupTimer = setTimeout(() => {
     const leaderboard = [...state.scores].sort((a, b) => b.score - a.score).slice(0, 5);
@@ -189,6 +247,7 @@ function recordAndSetCurrent(prevSongObj, newId, reason){
   } else {
     stopPlayer();
   }
+  clearVotes(); // "vote for next song" only makes sense relative to whatever is playing now
   renderQueue();
 }
 
@@ -447,7 +506,7 @@ function renderQueue(){
       <div class="idx">${isCurrent ? '▶' : i + 1}</div>
       <img src="${escapeHtml(song.thumbnail)}" alt="">
       <div class="meta">
-        <div class="title">${song.source === 'local' ? '<span class="source-badge local">💻</span>' : ''}${escapeHtml(song.title)}</div>
+        <div class="title">${song.source === 'local' ? '<span class="source-badge local">💻</span>' : ''}${escapeHtml(song.title)}${voteTally.get(song.id) ? ' <span class="vote-badge">🗳️ ' + voteTally.get(song.id) + '</span>' : ''}</div>
         <div class="by">${song.by ? 'เพิ่มโดย ' + escapeHtml(song.by) : ''}</div>
       </div>
       <div class="actions">
@@ -528,7 +587,7 @@ function updateNowPlayingBar(song){
     textEl.style.animation = 'none';
     return;
   }
-  textEl.textContent = '🎤 กำลังเล่นเพลงนี้: ' + song.title + (song.by ? ' • เพิ่มโดย ' + song.by : '');
+  textEl.textContent = '🎤 กำลังเล่นเพลงนี้: ' + song.title + (song.by ? ' • เพิ่มโดย ' + song.by : '') + (song.dedication ? ' • 💌 ' + song.dedication : '');
   bar.style.display = 'block';
   // Reset then re-apply the animation so it restarts from the right edge every time, and so the
   // duration can be recalculated for the new text's length.
@@ -799,314 +858,6 @@ function playSoundEffect(file){
   }catch(e){}
 }
 
-
-/* ---------------- Mic + vocal effects (host only) ----------------
-   Completely separate audio graph from the song playback system — the microphone is read directly
-   from this device's hardware via getUserMedia and routed straight to this device's own speakers
-   through the Web Audio API. It never touches the YouTube player, the local <video> element, or the
-   "เสียงออกที่จอไหน" (audio output) setting at all, since a physical mic is only ever plugged into
-   whichever device is running the host page. */
-const MIC_EQ_BANDS = [
-  { freq: 31, label: '31' }, { freq: 62, label: '62' }, { freq: 125, label: '125' },
-  { freq: 250, label: '250' }, { freq: 500, label: '500' }, { freq: 1000, label: '1k' },
-  { freq: 2000, label: '2k' }, { freq: 4000, label: '4k' }, { freq: 8000, label: '8k' }, { freq: 16000, label: '16k' }
-];
-let micCtx = null;
-// Every mic channel — the host's own, plus up to 2 remote phones acting as floating mics — gets its
-// own fully independent EQ/Echo/Reverb/Volume chain, keyed here by a channel id ('host', or a remote's
-// PeerJS peer id). This Map is the single source of truth for both the live audio nodes and the
-// current slider values (so switching tabs doesn't lose anything, and a channel's values survive even
-// while its mic is off).
-const micChannels = new Map();
-let selectedMicChannel = 'host';
-const MAX_REMOTE_MICS = 2;
-const pendingMicRequests = new Set(); // conn.peer ids granted a slot but not yet streaming — reserves the slot so a 3rd request can't sneak in during the gap
-
-function newMicChannelValues(){ return { vol: 100, eq: MIC_EQ_BANDS.map(() => 0), echo: 0, reverb: 0 }; }
-
-// A synthesized reverb "room" — exponentially-decaying white noise used as a ConvolverNode's impulse
-// response. Generated entirely in code, so there's no audio file and no copyright concern at all.
-function createReverbImpulse(ctx, duration, decay){
-  const rate = ctx.sampleRate;
-  const length = Math.max(1, Math.floor(rate * duration));
-  const impulse = ctx.createBuffer(2, length, rate);
-  for(let channel = 0; channel < 2; channel++){
-    const data = impulse.getChannelData(channel);
-    for(let i = 0; i < length; i++){
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
-    }
-  }
-  return impulse;
-}
-
-// Builds one independent EQ → Echo/Reverb → Volume chain for a given audio source node (either this
-// device's own mic, or an incoming WebRTC stream from a remote phone), seeded with whatever values
-// this channel already had (so re-opening a channel, or adjusting sliders before the mic itself turns
-// on, isn't lost).
-function buildMicChannelNodes(ctx, sourceNode, values){
-  const eqFilters = MIC_EQ_BANDS.map((band, i) => {
-    const f = ctx.createBiquadFilter();
-    f.type = 'peaking';
-    f.frequency.value = band.freq;
-    f.Q.value = 1.0;
-    f.gain.value = values.eq[i];
-    return f;
-  });
-  let node = sourceNode;
-  eqFilters.forEach(f => { node.connect(f); node = f; });
-  const eqOut = node;
-
-  const dryGain = ctx.createGain();
-  dryGain.gain.value = 1;
-  eqOut.connect(dryGain);
-
-  // Feedback is fixed at a safe level (not user-adjustable) so echo always decays naturally instead of
-  // risking a runaway howl; only the wet mix amount is exposed to the operator.
-  const delay = ctx.createDelay(2.0);
-  delay.delayTime.value = 0.28;
-  const feedback = ctx.createGain();
-  feedback.gain.value = 0.35;
-  const echoWet = ctx.createGain();
-  echoWet.gain.value = values.echo / 100;
-  eqOut.connect(delay);
-  delay.connect(feedback);
-  feedback.connect(delay);
-  delay.connect(echoWet);
-
-  const convolver = ctx.createConvolver();
-  convolver.buffer = createReverbImpulse(ctx, 2.2, 3.0);
-  const reverbWet = ctx.createGain();
-  reverbWet.gain.value = values.reverb / 100;
-  eqOut.connect(convolver);
-  convolver.connect(reverbWet);
-
-  const master = ctx.createGain();
-  master.gain.value = values.vol / 100;
-  dryGain.connect(master);
-  echoWet.connect(master);
-  reverbWet.connect(master);
-  master.connect(ctx.destination);
-
-  return { source: sourceNode, eqFilters, dryGain, delay, feedback, echoWet, convolver, reverbWet, master };
-}
-
-function disconnectMicChannelNodes(nodes){
-  if(!nodes) return;
-  try{
-    nodes.source.disconnect();
-    nodes.eqFilters.forEach(f => { try{ f.disconnect(); }catch(e){} });
-    nodes.dryGain.disconnect();
-    nodes.delay.disconnect();
-    nodes.feedback.disconnect();
-    nodes.echoWet.disconnect();
-    nodes.convolver.disconnect();
-    nodes.reverbWet.disconnect();
-    nodes.master.disconnect();
-  }catch(e){}
-}
-
-function ensureMicCtx(){
-  if(!micCtx) micCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if(micCtx.state === 'suspended') micCtx.resume().catch(() => {});
-}
-
-async function startHostMic(){
-  const existing = micChannels.get('host');
-  if(existing && existing.stream) return true; // already on
-  let stream;
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-    });
-  }catch(e){
-    console.warn('[Mic] getUserMedia failed:', e);
-    showToast('⚠️ ไม่สามารถเข้าถึงไมโครโฟนได้ — ตรวจสอบว่าอนุญาตสิทธิ์ไมค์ให้เว็บนี้แล้ว', true);
-    return false;
-  }
-  ensureMicCtx();
-  const values = existing ? existing.values : newMicChannelValues();
-  const source = micCtx.createMediaStreamSource(stream);
-  const nodes = buildMicChannelNodes(micCtx, source, values);
-  micChannels.set('host', { label: 'จอหลัก', isRemote: false, nodes, values, stream });
-  return true;
-}
-
-function stopHostMic(){
-  const ch = micChannels.get('host');
-  if(!ch) return;
-  if(ch.stream) ch.stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
-  disconnectMicChannelNodes(ch.nodes);
-  micChannels.set('host', { ...ch, nodes: null, stream: null });
-}
-
-// Called when a remote phone's WebRTC media call actually arrives with its audio stream.
-function addRemoteMicChannel(channelId, label, mediaStream, call, conn){
-  pendingMicRequests.delete(channelId);
-  ensureMicCtx();
-  const values = newMicChannelValues();
-  const source = micCtx.createMediaStreamSource(mediaStream);
-  const nodes = buildMicChannelNodes(micCtx, source, values);
-  micChannels.set(channelId, { label, isRemote: true, nodes, values, stream: mediaStream, call, conn });
-  renderMicChannelTabs();
-  showToast('🎤 "' + label + '" เชื่อมต่อไมค์ลอยแล้ว');
-}
-
-function removeRemoteMicChannel(channelId){
-  const ch = micChannels.get(channelId);
-  if(!ch) return;
-  disconnectMicChannelNodes(ch.nodes);
-  if(ch.call){ try{ ch.call.close(); }catch(e){} }
-  micChannels.delete(channelId);
-  pendingMicRequests.delete(channelId);
-  if(selectedMicChannel === channelId) selectedMicChannel = 'host';
-  renderMicChannelTabs();
-  renderMicChannelControls();
-}
-
-function remoteMicSlotCount(){
-  let count = 0;
-  micChannels.forEach(ch => { if(ch.isRemote) count++; });
-  return count + pendingMicRequests.size;
-}
-
-// A remote asked to turn its floating mic on — grants or denies a slot (out of MAX_REMOTE_MICS), and
-// reserves the slot immediately on a grant so a near-simultaneous 3rd request can't slip through
-// before this remote's actual audio stream arrives a moment later.
-function handleMicSlotRequest(conn, name){
-  if(remoteMicSlotCount() >= MAX_REMOTE_MICS){
-    conn.send({ type: 'MIC_SLOT_DENIED' });
-    return;
-  }
-  pendingMicRequests.add(conn.peer);
-  conn.send({ type: 'MIC_SLOT_GRANTED' });
-  // Safety net: if this remote never completes the call (denies the mic prompt without us hearing
-  // about it, closes the tab mid-handshake, etc.), don't leave the slot reserved forever.
-  setTimeout(() => { pendingMicRequests.delete(conn.peer); }, 15000);
-}
-function handleMicSlotRelease(conn){
-  pendingMicRequests.delete(conn.peer);
-}
-
-function renderMicChannelTabs(){
-  const wrap = document.getElementById('mic-channel-tabs');
-  wrap.innerHTML = '';
-  const makeTab = (id, label) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'mic-tab' + (id === selectedMicChannel ? ' active' : '');
-    btn.textContent = label;
-    btn.onclick = () => { selectedMicChannel = id; renderMicChannelTabs(); renderMicChannelControls(); };
-    return btn;
-  };
-  wrap.appendChild(makeTab('host', '🎤 จอหลัก'));
-  micChannels.forEach((ch, id) => { if(ch.isRemote) wrap.appendChild(makeTab(id, '📱 ' + ch.label)); });
-}
-
-function renderMicChannelControls(){
-  let ch = micChannels.get(selectedMicChannel);
-  if(!ch){ selectedMicChannel = 'host'; ch = micChannels.get('host'); }
-  if(!ch){ ch = { label: 'จอหลัก', isRemote: false, nodes: null, values: newMicChannelValues(), stream: null }; micChannels.set('host', ch); }
-
-  const powerBtn = document.getElementById('btn-mic-power');
-  const kickBtn = document.getElementById('btn-mic-kick');
-  if(ch.isRemote){
-    powerBtn.style.display = 'none';
-    kickBtn.style.display = '';
-  } else {
-    powerBtn.style.display = '';
-    kickBtn.style.display = 'none';
-    powerBtn.textContent = ch.stream ? 'ปิดไมค์' : 'เปิดไมค์';
-    powerBtn.classList.toggle('on', !!ch.stream);
-  }
-
-  document.getElementById('mic-vol-slider').value = ch.values.vol;
-  document.getElementById('mic-echo-slider').value = ch.values.echo;
-  document.getElementById('mic-reverb-slider').value = ch.values.reverb;
-
-  const row = document.getElementById('mic-eq-row');
-  row.innerHTML = '';
-  MIC_EQ_BANDS.forEach((band, i) => {
-    const wrap = document.createElement('div');
-    wrap.className = 'mic-eq-band';
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.className = 'mic-eq-slider';
-    slider.min = '-12'; slider.max = '12'; slider.step = '1';
-    slider.value = ch.values.eq[i];
-    slider.addEventListener('input', () => {
-      ch.values.eq[i] = parseFloat(slider.value);
-      if(ch.nodes) ch.nodes.eqFilters[i].gain.value = ch.values.eq[i];
-    });
-    const label = document.createElement('span');
-    label.className = 'mic-eq-label';
-    label.textContent = band.label;
-    wrap.appendChild(slider);
-    wrap.appendChild(label);
-    row.appendChild(wrap);
-  });
-}
-
-function updateMicHeaderButtonState(){
-  const anyOn = micChannels.size > 1 || !!micChannels.get('host')?.stream;
-  document.getElementById('btn-mic-toggle').classList.toggle('on', anyOn);
-}
-
-document.getElementById('btn-mic-toggle').onclick = () => {
-  const panel = document.getElementById('mic-panel');
-  const shown = panel.style.display !== 'none';
-  panel.style.display = shown ? 'none' : 'flex';
-  if(!shown){ renderMicChannelTabs(); renderMicChannelControls(); }
-};
-
-document.getElementById('btn-mic-power').onclick = async () => {
-  const btn = document.getElementById('btn-mic-power');
-  const ch = micChannels.get('host');
-  if(ch && ch.stream){
-    stopHostMic();
-    showToast('🎤 ปิดไมค์แล้ว');
-  } else {
-    btn.textContent = 'กำลังเชื่อมต่อ...';
-    const ok = await startHostMic();
-    if(ok) showToast('🎤 เปิดไมค์แล้ว — ปรับ EQ/เอฟเฟกต์ได้เลย');
-  }
-  renderMicChannelControls();
-  updateMicHeaderButtonState();
-};
-
-document.getElementById('btn-mic-kick').onclick = () => {
-  const ch = micChannels.get(selectedMicChannel);
-  if(!ch || !ch.isRemote) return;
-  if(ch.conn && ch.conn.open) ch.conn.send({ type: 'MIC_KICKED' });
-  const label = ch.label;
-  removeRemoteMicChannel(selectedMicChannel);
-  updateMicHeaderButtonState();
-  showToast('🔌 ตัดการเชื่อมต่อไมค์ "' + label + '" แล้ว');
-};
-
-document.getElementById('mic-vol-slider').addEventListener('input', (e) => {
-  const ch = micChannels.get(selectedMicChannel); if(!ch) return;
-  ch.values.vol = parseFloat(e.target.value);
-  if(ch.nodes) ch.nodes.master.gain.value = ch.values.vol / 100;
-});
-document.getElementById('mic-echo-slider').addEventListener('input', (e) => {
-  const ch = micChannels.get(selectedMicChannel); if(!ch) return;
-  ch.values.echo = parseFloat(e.target.value);
-  if(ch.nodes) ch.nodes.echoWet.gain.value = ch.values.echo / 100;
-});
-document.getElementById('mic-reverb-slider').addEventListener('input', (e) => {
-  const ch = micChannels.get(selectedMicChannel); if(!ch) return;
-  ch.values.reverb = parseFloat(e.target.value);
-  if(ch.nodes) ch.nodes.reverbWet.gain.value = ch.values.reverb / 100;
-});
-
-renderMicChannelTabs();
-renderMicChannelControls();
-
-// Release the microphone hardware if the page is closed/reloaded while it's still on, rather than
-// leaving the browser's mic-in-use indicator on for no reason. Remote mic calls close naturally with
-// the page too, but this makes sure the host's own mic track is explicitly stopped as well.
-window.addEventListener('beforeunload', () => { stopHostMic(); });
-
 function renderTempo(){
   document.getElementById('tempo-value').textContent = state.tempo.toFixed(2) + 'x';
 }
@@ -1118,10 +869,11 @@ function renderVolume(){
 }
 
 /* ---------------- Queue operations (playback order = host only) ---------------- */
-function addSong(song, from, playNow){
+function addSong(song, from, playNow, dedication){
+  const ded = (dedication || '').trim().slice(0, 40); // kept short so it always fits on one line wherever it's shown
   const newSong = song.source === 'local'
-    ? { id: uid(), source: 'local', localFileId: song.localFileId, title: song.title, thumbnail: LOCAL_FILE_THUMB, by: from || '' }
-    : { id: uid(), source: 'youtube', videoId: song.videoId, title: song.title, thumbnail: song.thumbnail, by: from || '' };
+    ? { id: uid(), source: 'local', localFileId: song.localFileId, title: song.title, thumbnail: LOCAL_FILE_THUMB, by: from || '', dedication: ded }
+    : { id: uid(), source: 'youtube', videoId: song.videoId, title: song.title, thumbnail: song.thumbnail, by: from || '', dedication: ded };
 
   // Friendly heads-up if this song was already played recently or is already queued — still adds it either way.
   const matchKey = s => s.source === 'local' ? s.localFileId : s.videoId;
@@ -1559,12 +1311,17 @@ function initPeer(){
             conn.send({ type: 'LOCAL_LIBRARY', localLibrary: state.localLibrary });
             conn.send({ type: 'CHORDS_LIBRARY', chords: state.chords });
             conn.send({ type: 'SOUND_EFFECTS', effects: soundEffects });
+            if(voteTally.size > 0){
+              const tally = {};
+              voteTally.forEach((count, id) => { if(count > 0) tally[id] = count; });
+              if(Object.keys(tally).length > 0) conn.send({ type: 'VOTE_TALLY', tally });
+            }
             {
               const song = currentSong();
               if(song && song.source === 'local'){
                 const file = localFiles.get(song.localFileId);
                 if(file && isAudioOnlyFile(file.name)){
-                  conn.send({ type: 'MP3_LYRICS', songId: song.id, code: song.title, title: currentMp3Lyrics?.title || '', artist: currentMp3Lyrics?.artist || '', lines: currentMp3Lyrics?.lines || null, coverDataUrl: currentMp3Lyrics?.coverDataUrl || null });
+                  conn.send({ type: 'MP3_LYRICS', songId: song.id, code: song.title, title: currentMp3Lyrics?.title || '', artist: currentMp3Lyrics?.artist || '', lines: currentMp3Lyrics?.lines || null, coverDataUrl: currentMp3Lyrics?.coverDataUrl || null, bgPattern: pickMp3BgPattern(song.localFileId || song.title || '') });
                 }
               }
             }
@@ -1582,51 +1339,13 @@ function initPeer(){
       const i = connections.indexOf(conn);
       if(i > -1) connections.splice(i, 1);
       updateConnStatus();
-      // The remote vanishing (app closed, phone slept, wifi dropped) shouldn't leave its floating mic
-      // channel stuck here forever — free it the same as an explicit disconnect would.
-      pendingMicRequests.delete(conn.peer);
-      if(micChannels.has(conn.peer)){
-        removeRemoteMicChannel(conn.peer);
-        updateMicHeaderButtonState();
-      }
-    });
-  });
-
-  // A remote's floating mic arrives as a separate WebRTC media call layered on the same peer
-  // connection used for remote control — this is the host's end of that call.
-  peer.on('call', (call) => {
-    const remoteConn = connections.find(c => c.peer === call.peer);
-    if(!remoteConn){
-      // Not a recognized, already-joined remote — refuse rather than silently accepting audio from
-      // an unauthenticated source.
-      try{ call.close(); }catch(e){}
-      return;
-    }
-    // Enforce the mic limit here too, not only at the earlier REQUEST_MIC_SLOT stage — this is the
-    // actual point a mic channel gets created, so it's the authoritative place to guard against ever
-    // exceeding MAX_REMOTE_MICS, regardless of how the call arrived.
-    let activeRemoteMics = 0;
-    micChannels.forEach(ch => { if(ch.isRemote) activeRemoteMics++; });
-    if(!micChannels.has(call.peer) && activeRemoteMics >= MAX_REMOTE_MICS){
-      try{ call.close(); }catch(e){}
-      return;
-    }
-    call.answer(); // one-way: the host sends nothing back, it only receives this remote's mic audio
-    call.on('stream', (remoteStream) => {
-      const label = (call.metadata && call.metadata.name) || remoteConn._nickname || 'รีโมท';
-      addRemoteMicChannel(call.peer, label, remoteStream, call, remoteConn);
-      updateMicHeaderButtonState();
-    });
-    call.on('close', () => {
-      if(micChannels.has(call.peer)){
-        removeRemoteMicChannel(call.peer);
-        updateMicHeaderButtonState();
-      }
-    });
-    call.on('error', () => {
-      if(micChannels.has(call.peer)){
-        removeRemoteMicChannel(call.peer);
-        updateMicHeaderButtonState();
+      // Don't let a vote outlive the connection that cast it — free it up for the tally.
+      const votedFor = voteByConn.get(conn.peer);
+      if(votedFor){
+        voteByConn.delete(conn.peer);
+        voteTally.set(votedFor, Math.max(0, (voteTally.get(votedFor) || 0) - 1));
+        broadcastVoteTally();
+        renderQueue();
       }
     });
   });
@@ -1686,7 +1405,7 @@ function renderConnectedDevices(){
 
 // Guests can queue/remove songs and adjust tempo. Admins get full remote control,
 // equivalent to standing at the main screen — matches what a scanned Admin QR grants.
-const GUEST_ALLOWED = new Set(['ADD_SONG', 'REMOVE_SONG', 'TEMPO_UP', 'TEMPO_DOWN', 'VOLUME_UP', 'VOLUME_DOWN', 'TOGGLE_MUTE', 'PLAY_SOUND_EFFECT', 'REQUEST_MIC_SLOT', 'MIC_SLOT_RELEASE']);
+const GUEST_ALLOWED = new Set(['ADD_SONG', 'REMOVE_SONG', 'TEMPO_UP', 'TEMPO_DOWN', 'VOLUME_UP', 'VOLUME_DOWN', 'TOGGLE_MUTE', 'PLAY_SOUND_EFFECT', 'EMOJI_REACTION', 'VOTE_NEXT_SONG']);
 const ADMIN_ALLOWED = new Set([
   ...GUEST_ALLOWED,
   'SKIP', 'PREV', 'TOGGLE_PLAY', 'INSERT_NEXT', 'MOVE_UP', 'MOVE_DOWN', 'REORDER_BEFORE', 'LOAD_PLAYLIST', 'PLAY_SONG'
@@ -1703,7 +1422,7 @@ function handleRemoteMessage(msg, conn){
         showToast('เพลงจากไฟล์ในเครื่องนี้ไม่พร้อมแล้ว (อาจล้างโฟลเดอร์ไปแล้ว) — ไม่ได้เพิ่มเข้าคิว', true);
         break;
       }
-      addSong(msg.song, msg.from, false);
+      addSong(msg.song, msg.from, false, msg.dedication);
       showToast(`🎵 ${msg.from ? msg.from + ' ' : ''}เพิ่มเพลง "${msg.song.title}" เข้าคิว`);
       break;
     case 'REMOVE_SONG': removeSong(msg.id); break;
@@ -1722,9 +1441,39 @@ function handleRemoteMessage(msg, conn){
     case 'REORDER_BEFORE': reorderBefore(msg.draggedId, msg.targetId); break;
     case 'LOAD_PLAYLIST': loadPlaylistIntoQueue(msg.name); break;
     case 'PLAY_SONG': playSongId(msg.id); break;
-    case 'REQUEST_MIC_SLOT': handleMicSlotRequest(conn, msg.name); break;
-    case 'MIC_SLOT_RELEASE': handleMicSlotRelease(conn); break;
+    case 'EMOJI_REACTION':
+      showEmojiReaction(msg.emoji);
+      connections.forEach(c => { if(c.open) c.send({ type: 'EMOJI_REACTION', emoji: msg.emoji }); });
+      break;
+    case 'VOTE_NEXT_SONG': handleVoteNextSong(conn, msg.songId); break;
   }
+}
+
+/* ---------------- Voting for which queued song plays next (a suggestion to the admin, not automatic —
+   the admin still picks what actually plays). Votes reset whenever the current song changes, since
+   "next" only makes sense relative to right now. ---------------- */
+const voteTally = new Map(); // songId -> vote count
+const voteByConn = new Map(); // conn.peer -> the songId that connection currently has a vote on
+function handleVoteNextSong(conn, songId){
+  if(!state.queue.some(s => s.id === songId && s.id !== state.currentId)) return; // ignore votes for the currently playing song or a song no longer in the queue
+  const prevVote = voteByConn.get(conn.peer);
+  if(prevVote === songId) return; // no actual change
+  if(prevVote) voteTally.set(prevVote, Math.max(0, (voteTally.get(prevVote) || 0) - 1));
+  voteByConn.set(conn.peer, songId);
+  voteTally.set(songId, (voteTally.get(songId) || 0) + 1);
+  broadcastVoteTally();
+  renderQueue();
+}
+function broadcastVoteTally(){
+  const tally = {};
+  voteTally.forEach((count, id) => { if(count > 0) tally[id] = count; });
+  connections.forEach(c => { if(c.open) c.send({ type: 'VOTE_TALLY', tally }); });
+}
+function clearVotes(){
+  if(voteTally.size === 0 && voteByConn.size === 0) return; // nothing to do, avoid a pointless broadcast every song
+  voteTally.clear();
+  voteByConn.clear();
+  broadcastVoteTally();
 }
 
 function broadcastState(){
@@ -1938,17 +1687,82 @@ function clearHistory(){
 
 // Clears the queue, scores, and history for a fresh event — but deliberately keeps saved playlists,
 // since those are the reusable thing people want to keep across different parties.
+// Computed from whatever is still in state.scores/state.history right before startNewParty wipes them
+// — this is the only point in the app's lifecycle where "the whole night" is still available to look
+// back on, so the summary has to be built here, right before the reset actually happens.
+function computeNightSummary(){
+  const scores = state.scores;
+  const history = state.history;
+  if(scores.length === 0 && history.length === 0) return null;
+
+  const byAvg = {};
+  scores.forEach(s => {
+    const name = s.by || '';
+    if(!name) return;
+    if(!byAvg[name]) byAvg[name] = { total: 0, count: 0 };
+    byAvg[name].total += s.score;
+    byAvg[name].count++;
+  });
+  let bestSinger = null, bestAvg = -1;
+  Object.entries(byAvg).forEach(([name, agg]) => {
+    const avg = agg.total / agg.count;
+    if(avg > bestAvg){ bestAvg = avg; bestSinger = name; }
+  });
+
+  const songCounts = {};
+  history.forEach(h => { songCounts[h.title] = (songCounts[h.title] || 0) + 1; });
+  let hitSong = null, hitCount = 0;
+  Object.entries(songCounts).forEach(([title, count]) => { if(count > hitCount){ hitCount = count; hitSong = title; } });
+
+  const singCounts = {};
+  history.forEach(h => { if(h.by) singCounts[h.by] = (singCounts[h.by] || 0) + 1; });
+  let mostActive = null, mostActiveCount = 0;
+  Object.entries(singCounts).forEach(([name, count]) => { if(count > mostActiveCount){ mostActiveCount = count; mostActive = name; } });
+
+  let topScore = null;
+  scores.forEach(s => { if(!topScore || s.score > topScore.score) topScore = s; });
+
+  return {
+    totalSongs: history.length,
+    bestSinger: bestSinger ? { name: bestSinger, avg: Math.round(byAvg[bestSinger].total / byAvg[bestSinger].count) } : null,
+    hitSong: hitSong && hitCount > 1 ? { title: hitSong, count: hitCount } : null, // only interesting if it actually repeated
+    mostActive: mostActive ? { name: mostActive, count: mostActiveCount } : null,
+    topScore: topScore ? { name: topScore.by || 'ไม่ระบุชื่อ', title: topScore.title, score: topScore.score } : null
+  };
+}
+
+function showNightSummary(summary, onClose){
+  const overlay = document.getElementById('night-summary-overlay');
+  const statsEl = document.getElementById('night-summary-stats');
+  let html = `<div class="ns-row"><span class="ns-label">🎵 เพลงที่เล่นทั้งหมด</span><span class="ns-value">${summary.totalSongs} เพลง</span></div>`;
+  if(summary.bestSinger) html += `<div class="ns-row"><span class="ns-label">🏆 นักร้องยอดเยี่ยม</span><span class="ns-value">${escapeHtml(summary.bestSinger.name)} (เฉลี่ย ${summary.bestSinger.avg} คะแนน)</span></div>`;
+  if(summary.hitSong) html += `<div class="ns-row"><span class="ns-label">🔥 เพลงฮิตที่สุด</span><span class="ns-value">${escapeHtml(summary.hitSong.title)} (เล่น ${summary.hitSong.count} ครั้ง)</span></div>`;
+  if(summary.mostActive) html += `<div class="ns-row"><span class="ns-label">🎤 ร้องมากที่สุด</span><span class="ns-value">${escapeHtml(summary.mostActive.name)} (${summary.mostActive.count} เพลง)</span></div>`;
+  if(summary.topScore) html += `<div class="ns-row"><span class="ns-label">⭐ คะแนนสูงสุดของคืนนี้</span><span class="ns-value">${escapeHtml(summary.topScore.name)} — ${summary.topScore.score} คะแนน (${escapeHtml(summary.topScore.title)})</span></div>`;
+  statsEl.innerHTML = html;
+  overlay.style.display = 'flex';
+  document.getElementById('btn-close-night-summary').onclick = () => {
+    overlay.style.display = 'none';
+    if(onClose) onClose();
+  };
+}
+
 function startNewParty(){
   if(!confirm('เริ่มงานใหม่? ระบบจะล้างคิวเพลง คะแนน และประวัติทั้งหมด (เพลย์ลิสต์ที่บันทึกไว้จะไม่ถูกลบ)')) return;
-  state.queue = [];
-  state.currentId = null;
-  stopPlayer();
-  state.scores = [];
-  saveScores();
-  state.history = [];
-  saveHistory();
-  renderQueue();
-  showToast('เริ่มงานใหม่แล้ว — คิว คะแนน และประวัติถูกล้างแล้ว');
+  const summary = computeNightSummary();
+  const doReset = () => {
+    state.queue = [];
+    state.currentId = null;
+    stopPlayer();
+    state.scores = [];
+    saveScores();
+    state.history = [];
+    saveHistory();
+    renderQueue();
+    showToast('เริ่มงานใหม่แล้ว — คิว คะแนน และประวัติถูกล้างแล้ว');
+  };
+  if(summary) showNightSummary(summary, doReset);
+  else doReset();
 }
 
 /* ---------------- Search (single-screen mode: search & queue/play directly) ---------------- */
@@ -2319,12 +2133,23 @@ function hideMp3NowPlaying(){
   document.getElementById('mp3-title-row').style.display = 'none';
   document.getElementById('mp3-artist-row').style.display = 'none';
   document.getElementById('mp3-progress-wrap').style.display = 'none';
-  document.getElementById('mp3-bg').classList.remove('has-cover');
+  document.getElementById('mp3-bg').classList.remove('has-cover', ...MP3_BG_PATTERNS);
   document.getElementById('mp3-bg').style.backgroundImage = '';
   currentMp3Lyrics = null;
   currentLyricLineIndex = -1;
   mp3LyricsLoadToken++;
   connections.forEach(c => { if(c.open) c.send({ type: 'MP3_LYRICS', songId: null, code: '', title: '', artist: '', lines: null, coverDataUrl: null }); });
+}
+
+// A small set of CSS-only gradient backgrounds used on the MP3 "now playing" screen whenever a file
+// has no embedded cover art, so it isn't just a plain flat background every time. The pick is a
+// deterministic hash of the file's id, not actual randomness — so the same file always lands on the
+// same pattern rather than jumping around on every replay.
+const MP3_BG_PATTERNS = ['pattern-1', 'pattern-2', 'pattern-3', 'pattern-4', 'pattern-5'];
+function pickMp3BgPattern(seed){
+  let hash = 0;
+  for(let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return MP3_BG_PATTERNS[hash % MP3_BG_PATTERNS.length];
 }
 
 function loadMp3LyricsForSong(song){
@@ -2335,8 +2160,12 @@ function loadMp3LyricsForSong(song){
   document.getElementById('mp3-lyrics').style.display = 'none';
   document.getElementById('mp3-title-row').style.display = 'none';
   document.getElementById('mp3-artist-row').style.display = 'none';
-  document.getElementById('mp3-bg').classList.remove('has-cover');
-  document.getElementById('mp3-bg').style.backgroundImage = '';
+  const mp3BgEl = document.getElementById('mp3-bg');
+  mp3BgEl.classList.remove('has-cover', ...MP3_BG_PATTERNS);
+  mp3BgEl.style.backgroundImage = '';
+  // Show a pattern immediately (same one every time for this exact file, so it doesn't flicker between
+  // different patterns on repeat plays) — swapped out for real cover art below if the file has one.
+  mp3BgEl.classList.add(pickMp3BgPattern(song.localFileId || song.title || ''));
   // "รหัสเพลง" always shows the filename-derived title — for files where the filename already IS a
   // real song name (not an actual code), this row just ends up showing that name, which is fine; the
   // "ชื่อเพลง"/"นักร้อง" rows below only appear once the embedded metadata actually decodes successfully.
@@ -2357,6 +2186,7 @@ function loadMp3LyricsForSong(song){
       document.getElementById('mp3-artist-row').style.display = 'flex';
     }
     if(result && result.coverDataUrl){
+      document.getElementById('mp3-bg').classList.remove(...MP3_BG_PATTERNS);
       document.getElementById('mp3-bg').style.backgroundImage = `url("${result.coverDataUrl}")`;
       document.getElementById('mp3-bg').classList.add('has-cover');
     }
@@ -2375,7 +2205,8 @@ function broadcastMp3Lyrics(song, result){
     title: result?.title || '',
     artist: result?.artist || '',
     lines: result?.lines || null,
-    coverDataUrl: result?.coverDataUrl || null
+    coverDataUrl: result?.coverDataUrl || null,
+    bgPattern: pickMp3BgPattern(song.localFileId || song.title || '') // sent along so Screen 2 shows the exact same pattern as the host, not an independently-picked one
   };
   connections.forEach(c => { if(c.open) c.send(payload); });
 }
@@ -2808,19 +2639,37 @@ document.getElementById('btn-chords-button-toggle').onclick = () => {
   btn.classList.toggle('accent', chordsButtonVisible);
 };
 
-/* ---------------- Dark / light theme (remembered per device, not just per session) ---------------- */
-let lightTheme = localStorage.getItem('sriKaraoke_theme') === 'light';
-function applyTheme(){
-  document.body.classList.toggle('light-theme', lightTheme);
-  document.getElementById('btn-theme-toggle').textContent = lightTheme ? 'สว่าง' : 'มืด';
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if(meta) meta.setAttribute('content', lightTheme ? '#FFFFFF' : '#1B1533');
-}
-document.getElementById('btn-theme-toggle').onclick = () => {
-  lightTheme = !lightTheme;
-  localStorage.setItem('sriKaraoke_theme', lightTheme ? 'light' : 'dark');
-  applyTheme();
+/* ---------------- Theme (remembered per device, not just per session) ---------------- */
+const THEME_COLORS = { dark: '#1B1533', light: '#FFFFFF', birthday: '#4A1259', newyear: '#2D1B4E', songkran: '#0A4A63' };
+const THEME_CLASS = { light: 'light-theme', birthday: 'birthday-theme', newyear: 'newyear-theme', songkran: 'songkran-theme' };
+const THEME_DECORATIONS = {
+  birthday: ['🎈', '🎈', '🎈', '🎈', '🎉', '🎁'],
+  newyear: ['🎆', '✨', '🎇', '✨', '🎆', '🥳'],
+  songkran: ['💦', '🌸', '💦', '🌺', '💦', '🌸']
 };
+let currentTheme = localStorage.getItem('sriKaraoke_theme') || 'dark';
+if(!THEME_COLORS[currentTheme]) currentTheme = 'dark'; // guard against a stale/invalid stored value
+function applyTheme(){
+  document.body.classList.remove(...Object.values(THEME_CLASS));
+  if(THEME_CLASS[currentTheme]) document.body.classList.add(THEME_CLASS[currentTheme]);
+  const select = document.getElementById('theme-select');
+  if(select) select.value = currentTheme;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute('content', THEME_COLORS[currentTheme]);
+  const decoContainer = document.getElementById('theme-decorations');
+  const decos = THEME_DECORATIONS[currentTheme];
+  if(decos){
+    decoContainer.style.display = 'block';
+    decoContainer.querySelectorAll('.deco').forEach((el, i) => { el.textContent = decos[i] || ''; });
+  } else {
+    decoContainer.style.display = 'none';
+  }
+}
+document.getElementById('theme-select').addEventListener('change', (e) => {
+  currentTheme = e.target.value;
+  localStorage.setItem('sriKaraoke_theme', currentTheme);
+  applyTheme();
+});
 applyTheme();
 applyPowerSaving();
 

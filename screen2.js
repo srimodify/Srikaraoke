@@ -225,6 +225,10 @@ function handleHostMessage(msg){
     playSoundEffectOnScreen2(msg.file);
     return;
   }
+  if(msg.type === 'EMOJI_REACTION'){
+    showEmojiReaction(msg.emoji);
+    return;
+  }
   if(msg.type === 'MP3_LYRICS'){
     s2Mp3Data = msg.songId ? msg : null;
     renderDisplay();
@@ -464,7 +468,7 @@ function updateNowPlayingMarquee(song){
   }
   if(song.id === lastMarqueeSongId) return;
   lastMarqueeSongId = song.id;
-  textEl.textContent = '🎤 กำลังเล่นเพลงนี้: ' + song.title + (song.by ? ' • เพิ่มโดย ' + song.by : '');
+  textEl.textContent = '🎤 กำลังเล่นเพลงนี้: ' + song.title + (song.by ? ' • เพิ่มโดย ' + song.by : '') + (song.dedication ? ' • 💌 ' + song.dedication : '');
   textEl.style.animation = 'none';
   void textEl.offsetWidth; // force reflow so the browser "forgets" the previous animation state
   const duration = Math.max(10, textEl.textContent.length * 0.35);
@@ -496,8 +500,14 @@ function renderDisplay(){
       if(s2Mp3Data.artist){ document.getElementById('mp3-artist').textContent = s2Mp3Data.artist; artistRow.style.display = 'flex'; }
       else { artistRow.style.display = 'none'; }
       const bg = document.getElementById('mp3-bg');
-      if(s2Mp3Data.coverDataUrl){ bg.style.backgroundImage = `url("${s2Mp3Data.coverDataUrl}")`; bg.classList.add('has-cover'); }
-      else { bg.style.backgroundImage = ''; bg.classList.remove('has-cover'); }
+      bg.classList.remove('has-cover', 'pattern-1', 'pattern-2', 'pattern-3', 'pattern-4', 'pattern-5');
+      if(s2Mp3Data.coverDataUrl){
+        bg.style.backgroundImage = `url("${s2Mp3Data.coverDataUrl}")`;
+        bg.classList.add('has-cover');
+      } else {
+        bg.style.backgroundImage = '';
+        if(s2Mp3Data.bgPattern) bg.classList.add(s2Mp3Data.bgPattern); // same pattern the host picked for this exact file
+      }
       document.getElementById('mp3-lyrics').style.display = s2Mp3Data.lines ? 'flex' : 'none';
       npBar.style.display = 'block';
       updateNowPlayingMarquee(song);
@@ -621,6 +631,35 @@ function scoreTier(score){
   if(score >= 70) return { label: 'เก่งมาก!', color: '#2EE6D6' };
   return { label: 'พยายามได้ดี!', color: '#FF3D81' };
 }
+// A single floating emoji — the host forwards one here whenever anyone (itself or a remote) sends one.
+function showEmojiReaction(emoji){
+  const el = document.createElement('div');
+  el.className = 'emoji-reaction';
+  el.textContent = emoji || '👍';
+  el.style.left = (20 + Math.random() * 60) + '%';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+}
+
+// A lightweight, dependency-free confetti burst — plain DOM + CSS animation, no canvas or library.
+function launchConfetti(){
+  const container = document.createElement('div');
+  container.className = 'confetti-container';
+  const colors = ['#FFC857', '#FF3D81', '#2EE6D6', '#FFD700', '#ffffff'];
+  for(let i = 0; i < 70; i++){
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+    piece.style.left = (Math.random() * 100) + '%';
+    piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+    piece.style.animationDelay = (Math.random() * 0.4) + 's';
+    piece.style.animationDuration = (2.6 + Math.random() * 1.6) + 's';
+    piece.style.setProperty('--rot', (Math.random() * 360) + 'deg');
+    container.appendChild(piece);
+  }
+  document.body.appendChild(container);
+  setTimeout(() => container.remove(), 4600);
+}
+
 function showScorePopup(entry, leaderboard){
   const overlay = document.getElementById('score-popup-overlay');
   const box = document.getElementById('score-popup-box');
@@ -632,6 +671,7 @@ function showScorePopup(entry, leaderboard){
     <div class="score-number" style="color:${tier.color}">${entry.score}</div>
     <div class="score-tier" style="color:${tier.color}">${tier.label}</div>`;
   overlay.style.display = 'flex';
+  if(entry.score >= 90) launchConfetti();
   clearTimeout(scorePopupTimer);
   scorePopupTimer = setTimeout(() => showLeaderboardPopup(leaderboard), 3500);
 }

@@ -147,28 +147,12 @@ header h1 span{color:var(--magenta);}
   display:flex;align-items:center;justify-content:center;
 }
 #btn-effects-toggle.active{background:var(--gold);color:#1B1533;border-color:var(--gold);}
-#btn-remote-mic{
+#btn-emoji-toggle{
   background:var(--panel-2);border:1px solid var(--line);color:var(--text-dim);
   border-radius:999px;width:28px;height:28px;font-size:13px;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
-  position:relative;
 }
-#btn-remote-mic.on{background:var(--magenta);color:#fff;border-color:var(--magenta);}
-#btn-remote-mic.connecting{opacity:.6;}
-#toast-container{
-  position:fixed;top:16px;left:50%;transform:translateX(-50%);
-  z-index:500;display:flex;flex-direction:column;gap:8px;align-items:center;
-  pointer-events:none;width:100%;padding:0 16px;box-sizing:border-box;
-}
-.toast{
-  background:var(--panel-2);border:1px solid var(--line);color:var(--text);
-  padding:10px 18px;border-radius:999px;font-size:13px;
-  box-shadow:0 6px 20px rgba(0,0,0,.35);
-  animation:toast-in .2s ease-out;
-  max-width:100%;text-align:center;
-}
-.toast.error{border-color:var(--magenta);}
-@keyframes toast-in{from{opacity:0;transform:translateY(-8px);}to{opacity:1;transform:translateY(0);}}
+#btn-emoji-toggle.active{background:var(--gold);color:#1B1533;border-color:var(--gold);}
 #effects-bar{
   margin-top:10px;
   display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;
@@ -185,6 +169,18 @@ header h1 span{color:var(--magenta);}
 }
 .effects-bar-btn:active{background:var(--line);}
 .effects-bar-btn-icon{font-size:18px;line-height:1;flex-shrink:0;}
+#emoji-bar{
+  margin-top:10px;
+  display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;
+  -webkit-overflow-scrolling:touch;
+}
+#emoji-bar-list{display:flex;gap:8px;}
+.emoji-bar-btn{
+  flex-shrink:0;width:46px;height:46px;font-size:22px;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:10px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+.emoji-bar-btn:active{background:var(--line);}
 .effects-bar-btn-label{
   min-width:0;flex:1;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -271,6 +267,14 @@ main{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 90px;}
 }
 .hint{color:var(--text-dim);font-size:12px;margin:0 0 14px;line-height:1.6;}
 .hint a{color:var(--teal);}
+.dedication-input{
+  width:100%;box-sizing:border-box;
+  background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:10px;
+  font-family:inherit;
+}
+.dedication-input:focus-visible{outline:2px solid var(--gold);}
+.dedication-input::placeholder{color:var(--text-dim);}
 .result-card{
   display:flex;gap:12px;background:var(--panel-2);border:1px solid var(--line);
   border-radius:12px;padding:10px;margin-bottom:8px;align-items:center;
@@ -311,6 +315,12 @@ main{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 90px;}
 .q-item .actions button{
   width:30px;height:30px;border-radius:8px;border:1px solid var(--line);
   background:transparent;color:var(--text-dim);cursor:pointer;font-size:14px;
+}
+.q-item .actions button.vote-btn.voted{background:var(--teal);border-color:var(--teal);color:#042A3D;}
+.vote-badge{
+  display:inline-block;font-size:10px;font-weight:700;
+  padding:2px 7px;border-radius:999px;margin-left:6px;vertical-align:middle;
+  background:rgba(46,230,214,.18);color:var(--teal);white-space:nowrap;
 }
 .empty-note{color:var(--text-dim);font-size:13px;text-align:center;padding:30px 10px;}
 
@@ -488,13 +498,16 @@ nav#tabbar button:focus-visible{outline:2px solid var(--gold);}
       </div>
       <div style="display:flex;align-items:center;gap:6px;">
         <button id="btn-effects-toggle" title="เสียงเอฟเฟกต์">🔊</button>
-        <button id="btn-remote-mic" title="เปิด/ปิดไมค์ลอย (ส่งเสียงไปจอหลัก)">🎤</button>
+        <button id="btn-emoji-toggle" title="ส่งอิโมจิไปจอหลัก">😀</button>
         <span class="role-badge" id="role-badge" style="display:none;">👑 แอดมิน</span>
         <span class="room-pill" id="room-pill">------</span>
       </div>
     </div>
     <div id="effects-bar" style="display:none;">
       <div id="effects-bar-list"></div>
+    </div>
+    <div id="emoji-bar" style="display:none;">
+      <div id="emoji-bar-list"></div>
     </div>
     <div id="np-strip" style="display:none;">
       <img id="np-thumb" src="" alt="">
@@ -539,6 +552,7 @@ nav#tabbar button:focus-visible{outline:2px solid var(--gold);}
         <button id="btn-search">ค้นหา</button>
       </div>
       <p class="hint" id="search-hint"></p>
+      <input type="text" id="dedication-input" class="dedication-input" placeholder="💌 ฝากข้อความถึงเพลงที่จะเพิ่ม (ไม่บังคับ)" maxlength="40">
       <div id="search-results"></div>
     </section>
 
@@ -570,8 +584,6 @@ nav#tabbar button:focus-visible{outline:2px solid var(--gold);}
     <button class="tab-btn" data-tab="tab-settings"><span class="ic">⚙️</span>ตั้งค่า</button>
   </nav>
 </div>
-
-<div id="toast-container"></div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="remote.js"></script>

@@ -101,6 +101,11 @@ input,button{font-family:inherit;}
   transition:opacity .4s ease;
 }
 .mp3-bg.has-cover{opacity:1;}
+.mp3-bg.pattern-1{opacity:1;background:linear-gradient(135deg, #FF3D81 0%, #241C42 60%, #0F0C1E 100%);}
+.mp3-bg.pattern-2{opacity:1;background:linear-gradient(135deg, #2EE6D6 0%, #1B1533 60%, #0F0C1E 100%);}
+.mp3-bg.pattern-3{opacity:1;background:radial-gradient(circle at 30% 20%, #FFC857 0%, #4A1259 50%, #0F0C1E 100%);}
+.mp3-bg.pattern-4{opacity:1;background:linear-gradient(160deg, #5C1A6E 0%, #0A4A63 50%, #0F0C1E 100%);}
+.mp3-bg.pattern-5{opacity:1;background:conic-gradient(from 180deg at 50% 50%, #FF3D81, #FFC857, #2EE6D6, #5C1A6E, #FF3D81);}
 .mp3-info{
   position:relative;z-index:1;
   display:flex;flex-direction:column;align-items:center;gap:5px;
@@ -328,6 +333,26 @@ input,button{font-family:inherit;}
 }
 
 /* ---- singing score popup (mirrors host/remote) ---- */
+.emoji-reaction{
+  position:fixed;bottom:12%;z-index:300;pointer-events:none;
+  font-size:48px;
+  animation:like-float 2.2s ease-out forwards;
+  filter:drop-shadow(0 4px 10px rgba(0,0,0,.4));
+}
+@keyframes like-float{
+  0%{ transform:translateY(0) scale(.5); opacity:0; }
+  15%{ transform:translateY(-20px) scale(1.15); opacity:1; }
+  100%{ transform:translateY(-230px) scale(1); opacity:0; }
+}
+.confetti-container{position:fixed;inset:0;z-index:300;pointer-events:none;overflow:hidden;}
+.confetti-piece{
+  position:absolute;top:-20px;width:9px;height:15px;
+  animation-name:confetti-fall;animation-timing-function:linear;animation-fill-mode:forwards;
+  opacity:.95;transform:rotate(var(--rot,0deg));
+}
+@keyframes confetti-fall{
+  to{ transform:translateY(112vh) rotate(calc(var(--rot,0deg) + 640deg)); opacity:.25; }
+}
 .score-popup-overlay{
   display:none;
   position:fixed;inset:0;z-index:100;
