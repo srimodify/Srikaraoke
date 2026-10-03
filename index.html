@@ -674,7 +674,16 @@ body.power-saving #next-up-bar{ animation: none !important; opacity:1 !important
   box-sizing:border-box;
   display:flex;flex-direction:column;gap:14px;
 }
-.emoji-panel-header{display:flex;align-items:center;justify-content:center;}
+.emoji-panel-header{position:relative;display:flex;align-items:center;justify-content:center;}
+#btn-emoji-panel-close{
+  position:absolute;right:0;top:50%;transform:translateY(-50%);
+  width:28px;height:28px;border-radius:50%;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);
+  color:var(--text-dim);font-size:14px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s,color .15s;
+}
+#btn-emoji-panel-close:hover{background:rgba(255,255,255,.18);color:var(--text);}
 .emoji-panel-title{
   font-family:'Kanit',sans-serif;font-weight:600;font-size:14px;color:#fff;
   text-shadow:0 1px 6px rgba(0,0,0,.8);
@@ -1609,6 +1618,7 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
       <div id="emoji-panel" style="display:none;">
         <div class="emoji-panel-header">
           <span class="emoji-panel-title">😀 ส่งอิโมจิ</span>
+          <button id="btn-emoji-panel-close" title="ปิดหน้าต่างอิโมจิ">✕</button>
         </div>
         <div class="emoji-grid" id="emoji-grid"></div>
       </div>

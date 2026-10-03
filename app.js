@@ -163,6 +163,12 @@ document.getElementById('btn-emoji-toggle').onclick = () => {
   const shown = panel.style.display !== 'none';
   panel.style.display = shown ? 'none' : 'flex';
 };
+// A dedicated close button inside the panel itself — the header toggle button that normally opens/
+// closes this panel can be hidden (the ▲/▼ "hide menu" control), which would otherwise leave no way
+// to close the panel at all once it's open.
+document.getElementById('btn-emoji-panel-close').onclick = () => {
+  document.getElementById('emoji-panel').style.display = 'none';
+};
 
 // A lightweight, dependency-free confetti burst — plain DOM + CSS animation, no canvas or library.
 function launchConfetti(){
