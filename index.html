@@ -1196,6 +1196,10 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
 }
 .pl-row button:hover{background:var(--line);}
 .new-pl-form{display:flex;gap:8px;margin-bottom:16px;}
+/* Hide the built-in "reveal password" icon some browsers (Edge/Chrome) add to password fields, so the
+   masked API key can't be unmasked that way either. */
+#host-api-key-input::-ms-reveal,
+#host-api-key-input::-ms-clear{display:none;}
 .new-pl-form input{
   flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
   border-radius:10px;padding:10px 12px;font-size:14px;font-family:inherit;
@@ -1962,7 +1966,7 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
       <h3>YouTube Data API Key</h3>
       <p class="hint">สำหรับค้นหาเพลงด้วยคำ (ไม่จำเป็นถ้าวางลิงก์ YouTube โดยตรงตอนเพิ่มเพลง)</p>
       <div class="new-pl-form">
-        <input type="text" id="host-api-key-input" placeholder="วาง API Key ที่นี่">
+        <input type="password" id="host-api-key-input" placeholder="วาง API Key ที่นี่" autocomplete="off" oncopy="return false" oncut="return false" oncontextmenu="return false">
         <button id="btn-host-save-key">บันทึก</button>
       </div>
     </div>
