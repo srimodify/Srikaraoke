@@ -2593,14 +2593,26 @@ document.getElementById('queue-toggle-btn').onclick = () => {
 };
 window.addEventListener('resize', updateQueueTogglePosition);
 window.addEventListener('orientationchange', () => setTimeout(updateQueueTogglePosition, 200));
+// Mirrors updateQueueTogglePosition() — sits right at the boundary between the panel and the video,
+// not at the fixed screen edge, so it moves in/out together with the panel instead of staying half
+// off-screen when the panel is open.
+function updateEffectsTogglePosition(){
+  const btn = document.getElementById('effects-toggle-btn');
+  const panel = document.getElementById('effects-panel');
+  const shown = panel.style.display !== 'none';
+  btn.style.left = (shown ? panel.getBoundingClientRect().width : 0) + 'px';
+  btn.textContent = shown ? '◀' : '▶';
+  btn.title = shown ? 'ซ่อนเสียงเอฟเฟกต์' : 'แสดงเสียงเอฟเฟกต์';
+}
 document.getElementById('effects-toggle-btn').onclick = () => {
   const panel = document.getElementById('effects-panel');
-  const btn = document.getElementById('effects-toggle-btn');
   const shown = panel.style.display !== 'none';
   panel.style.display = shown ? 'none' : 'flex';
-  btn.textContent = shown ? '▶' : '◀';
-  btn.title = shown ? 'แสดงเสียงเอฟเฟกต์' : 'ซ่อนเสียงเอฟเฟกต์';
+  updateEffectsTogglePosition();
 };
+window.addEventListener('resize', updateEffectsTogglePosition);
+window.addEventListener('orientationchange', () => setTimeout(updateEffectsTogglePosition, 200));
+updateEffectsTogglePosition();
 loadSoundEffects();
 document.getElementById('btn-new-party').onclick = startNewParty;
 

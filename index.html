@@ -223,18 +223,18 @@ main.queue-hidden #queue-panel{display:none;}
 #queue-toggle-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 #effects-toggle-btn{
   position:absolute;
-  top:calc(50% + var(--header-h,0px)/2);left:0;
+  top:calc(50% + var(--header-h,0px)/2);
   transform:translate(-50%,-50%);
   z-index:10;
-  width:34px;height:34px;
-  border-radius:50%;
+  width:18px;height:44px;
+  border-radius:9px;
   background:rgba(27,21,51,.85);
   border:1px solid rgba(255,255,255,.18);
   backdrop-filter:blur(3px);
   color:var(--text-dim);
   display:flex;align-items:center;justify-content:center;
   cursor:pointer;
-  font-size:13px;
+  font-size:11px;
   transition:background .15s,color .15s;
 }
 #effects-toggle-btn:hover{background:rgba(27,21,51,.98);color:var(--text);}

@@ -582,10 +582,7 @@ function makeResultCard(v){
     const song = v.source === 'local'
       ? { source: 'local', localFileId: v.localFileId, title: v.title, thumbnail: v.thumbnail }
       : { source: 'youtube', videoId: v.videoId, title: v.title, thumbnail: v.thumbnail };
-    const dedicationInput = document.getElementById('dedication-input');
-    const dedication = dedicationInput.value.trim();
-    send({ type: 'ADD_SONG', song, from: nickname, dedication });
-    dedicationInput.value = ''; // one-shot — applies only to the song just added, not the next one too
+    send({ type: 'ADD_SONG', song, from: nickname });
     card.querySelector('button').textContent = 'เพิ่มแล้ว ✓';
     card.querySelector('button').disabled = true;
   };
