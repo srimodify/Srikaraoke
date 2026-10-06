@@ -205,10 +205,14 @@ main.queue-hidden #queue-panel{display:none;}
   align-items:center;
   justify-content:center;
 }
+/* The two show/hide buttons (sound effects on the left, song queue on the right/bottom) are the same round button,
+   sized once here: change --tog-size to resize both. Only the size/shape lives here — where each one sits is
+   decided by updateQueueTogglePosition() / updateEffectsTogglePosition() and the panel edge they belong to. */
+:root{--tog-size:40px;}
 #queue-toggle-btn{
   position:absolute;
   z-index:10;
-  width:34px;height:34px;
+  width:var(--tog-size);height:var(--tog-size);
   border-radius:50%;
   background:rgba(27,21,51,.85);
   border:1px solid rgba(255,255,255,.18);
@@ -216,7 +220,7 @@ main.queue-hidden #queue-panel{display:none;}
   color:var(--text-dim);
   display:flex;align-items:center;justify-content:center;
   cursor:pointer;
-  font-size:13px;
+  font-size:15px;
   transition:background .15s,color .15s;
 }
 #queue-toggle-btn:hover{background:rgba(27,21,51,.98);color:var(--text);}
@@ -226,15 +230,15 @@ main.queue-hidden #queue-panel{display:none;}
   top:calc(50% + var(--header-h,0px)/2);
   transform:translate(-50%,-50%);
   z-index:10;
-  width:18px;height:44px;
-  border-radius:9px;
+  width:var(--tog-size);height:var(--tog-size);
+  border-radius:50%;
   background:rgba(27,21,51,.85);
   border:1px solid rgba(255,255,255,.18);
   backdrop-filter:blur(3px);
   color:var(--text-dim);
   display:flex;align-items:center;justify-content:center;
   cursor:pointer;
-  font-size:11px;
+  font-size:15px;
   transition:background .15s,color .15s;
 }
 #effects-toggle-btn:hover{background:rgba(27,21,51,.98);color:var(--text);}
@@ -453,6 +457,42 @@ main.queue-hidden #queue-panel{display:none;}
 #idle-screen.has-custom-bg .theme-decorations{display:none !important;}
 #idle-screen.has-custom-bg .idle-content .display{text-shadow:0 2px 14px rgba(0,0,0,.9);}
 @media (prefers-reduced-motion: reduce){ .idle-bg-layer{ transition-duration:.01s; } }
+
+/* ---------- Live camera (background on the idle + MP3 screens, small window while a video plays) ---------- */
+.cam-video{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  z-index:0;display:none;background:#000;
+}
+#idle-screen.has-camera .idle-bg{display:block;}
+#idle-screen.has-camera #idle-cam{display:block;}
+#idle-screen.has-camera .idle-bg-layer{display:none;}
+#idle-screen.has-camera .spotlights,
+#idle-screen.has-camera .disco-glare,
+#idle-screen.has-camera .disco-lights,
+#idle-screen.has-camera .led-lights,
+#idle-screen.has-camera .theme-decorations{display:none !important;}
+#idle-screen.has-camera .idle-content .display{text-shadow:0 2px 14px rgba(0,0,0,.9);}
+/* the MP3 screen's text/lyrics all sit at z-index:1, so the camera (0) and its dark wash stay underneath them */
+.mp3-cam-shade{
+  position:absolute;inset:0;z-index:0;display:none;pointer-events:none;
+  background:linear-gradient(180deg, rgba(15,12,30,.45) 0%, rgba(15,12,30,.62) 100%);
+}
+#mp3-now-playing.has-camera #mp3-cam,
+#mp3-now-playing.has-camera .mp3-cam-shade{display:block;}
+/* small window: right under the header (or at the very top when the header is hidden), out of the way of the sound-effects
+   panel. It sits BELOW the chord bar, the "next up" strip and the emoji panel (z-index 2 vs 3 / 3 / 9) — those are only up
+   briefly and are allowed to cover it. */
+#cam-pip{
+  position:absolute;z-index:2;
+  top:calc(var(--header-h,0px) + 8px);left:calc(12px + var(--effects-w,0px));
+  width:clamp(140px,22%,320px);aspect-ratio:16/9;
+  border-radius:12px;overflow:hidden;background:#000;
+  border:2px solid rgba(255,255,255,.35);box-shadow:0 8px 24px rgba(0,0,0,.5);
+  pointer-events:none; /* never blocks taps/clicks on the video underneath */
+  transition:left .2s ease;
+}
+#cam-pip video{width:100%;height:100%;object-fit:cover;display:block;}
+body.cam-mirror .cam-video, body.cam-mirror #cam-pip video{transform:scaleX(-1);}
 
 /* Settings: thumbnails of the added background pictures */
 .bg-thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
@@ -1460,6 +1500,16 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
         <li>ระบบให้คะแนนร้องเพลงแบบสุ่มหลังเพลงจบ พร้อมกระดานผู้นำ 5 อันดับ แสดงทั้งจอหลัก มือถือทุกเครื่อง และจอที่ 2</li>
         <li><strong>แสดงคอร์ดกีตาร์ของเพลงที่กำลังเล่นได้</strong> — พิมพ์คอร์ดเตรียมไว้เอง (แบบง่ายหรือแบบระบุเวลาละเอียด) ผูกกับเพลงนั้นไว้ถาวร เล่นซ้ำครั้งไหนก็ขึ้นให้อัตโนมัติ ใช้ได้ทั้งเพลงจาก YouTube และไฟล์ในเครื่อง</li>
       </ul>
+      <h3>🎉 บรรยากาศ &amp; ความสนุก</h3>
+      <ul>
+        <li>ส่งอิโมจิลอยขึ้นจอได้ 26 แบบ ทั้งจากจอหลักและรีโมท (แสดงที่จอหลักและจอที่ 2 พร้อมกัน)</li>
+        <li>คอนเฟตติ้ฉลองเมื่อได้คะแนนร้อง 90 ขึ้นไป และหน้าจอ "สรุปค่ำคืนนี้" ตอนกดเริ่มงานใหม่</li>
+        <li>โหวตเพลงถัดไปจากรีโมท (เป็นคำแนะนำให้แอดมิน ไม่เปลี่ยนคิวเอง)</li>
+        <li>ธีมสี 5 แบบ: มืด / สว่าง / วันเกิด / ปีใหม่ / สงกรานต์</li>
+        <li>ภาพพื้นหลังตอนคิวว่างแบบสไลด์โชว์ หรือ <strong>กล้องสด</strong> จากเว็บแคม (แสดงเต็มจอตอนคิวว่าง/หน้า MP3 และเป็นหน้าต่างเล็กมุมบนซ้ายตอนเล่นวิดีโอ — เปิด/ปิดที่จอหลักและจอที่ 2 แยกกันได้)</li>
+        <li>ช่องเสียง Stereo / L+L / R+R สำหรับไฟล์คาราโอเกะที่แยกเสียงร้อง/ดนตรีซ้าย-ขวา และส่งเสียงไฟล์ในเครื่องไปออกที่จอที่ 2 ได้</li>
+      </ul>
+
       <h3>⚙️ ใช้งานสะดวก</h3>
       <ul>
         <li>ติดตั้งเป็นแอป (PWA) ได้ทั้งจอทีวี กล่องแอนดรอย และมือถือ</li>
@@ -1580,6 +1630,8 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
         <audio id="idle-jingle" src="assets/please-select-song.mp3" loop preload="auto"></audio>
         <div id="mp3-now-playing" style="display:none;">
           <div class="mp3-bg" id="mp3-bg"></div>
+          <video class="cam-video" id="mp3-cam" autoplay muted playsinline></video>
+          <div class="mp3-cam-shade"></div>
           <div class="mp3-info">
             <div class="mp3-info-row mp3-row-code">
               <span class="mp3-info-label">รหัสเพลง</span>
@@ -1621,6 +1673,7 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
           <div class="idle-bg" id="idle-bg" aria-hidden="true">
             <div class="idle-bg-layer" id="idle-bg-a"></div>
             <div class="idle-bg-layer" id="idle-bg-b"></div>
+            <video class="cam-video" id="idle-cam" autoplay muted playsinline></video>
             <div class="idle-bg-shade"></div>
           </div>
           <div class="spotlights">
@@ -1660,6 +1713,7 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
         <div id="effects-panel-list"></div>
       </div>
       <audio id="sfx-player"></audio>
+      <div id="cam-pip" style="display:none;"><video id="cam-pip-video" autoplay muted playsinline></video></div>
       <div id="emoji-panel" style="display:none;">
         <div class="emoji-panel-header">
           <span class="emoji-panel-title">😀 ส่งอิโมจิ</span>
@@ -1928,7 +1982,53 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
 
     <div class="settings-section">
       <h3>ภาพพื้นหลังตอนคิวว่าง</h3>
-      <p class="hint">แสดงแทนหน้าจอดิสโก้ตอนไม่มีเพลงเล่นอยู่ ถ้าไม่เพิ่มภาพเลยจะใช้หน้าจอเริ่มต้นเหมือนเดิม เพิ่มได้หลายภาพ (สูงสุด 20 ภาพ) ถ้ามีมากกว่า 1 ภาพจะเปลี่ยนภาพวนไปเรื่อยๆ แบบสไลด์โชว์ — ถ้าเปิดใช้งานจอที่ 2 อยู่ ภาพจะถูกส่งไปแสดงที่จอที่ 2 ให้อัตโนมัติด้วย (ใช้เวลาและลำดับเดียวกัน)</p>
+      <div class="settings-toggle-row">
+        <div>
+          <div class="settings-row-title">🎞️ แหล่งพื้นหลัง</div>
+          <div class="settings-row-desc">เลือกอย่างใดอย่างหนึ่ง: ภาพนิ่ง/สไลด์โชว์ หรือ กล้องสด (กล้องในเครื่องหรือเว็บแคมที่ต่อกับอุปกรณ์จอหลัก) — ถ้ากล้องใช้ไม่ได้ จะกลับไปใช้ภาพสไลด์โชว์ที่ตั้งไว้ด้านล่าง หรือไฟดิสโก้ถ้าไม่ได้ตั้งภาพไว้</div>
+        </div>
+        <select class="theme-select" id="bg-source-select">
+          <option value="slides">🖼️ ภาพนิ่ง/สไลด์โชว์</option>
+          <option value="camera">📷 กล้องสด</option>
+        </select>
+      </div>
+      <div id="bg-camera-block" style="display:none;margin:12px 0 18px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);">
+        <p class="hint" id="cam-status" style="margin:0 0 10px;">ยังไม่ได้เปิดกล้อง</p>
+        <p class="hint" id="cam-link-status" style="display:none;margin:0 0 10px;white-space:pre-line;font-variant-numeric:tabular-nums;"></p>
+        <div class="settings-toggle-row">
+          <div>
+            <div class="settings-row-title">📷 กล้อง</div>
+            <div class="settings-row-desc">เลือกกล้องที่ต้องการใช้ (ต้องกดอนุญาตให้เว็บใช้กล้องก่อน รายชื่อกล้องถึงจะขึ้น)</div>
+          </div>
+          <select class="theme-select" id="cam-device-select"><option value="">กล้องเริ่มต้นของเครื่อง</option></select>
+        </div>
+        <button class="icon-btn" id="btn-cam-retry" style="margin:10px 0 4px;"><span>🔄</span> เปิดกล้อง / ลองเชื่อมต่ออีกครั้ง</button>
+        <div class="settings-toggle-row" style="margin-top:12px;">
+          <div><div class="settings-row-title">🖥️ แสดงที่จอหลัก</div><div class="settings-row-desc">ตอนคิวว่าง, หน้าเล่นเพลง MP3 และหน้าต่างเล็กตอนเล่นวิดีโอ</div></div>
+          <button class="icon-btn accent" id="btn-cam-host">เปิด</button>
+        </div>
+        <div class="settings-toggle-row" id="cam-screen2-row" style="margin-top:12px;display:none;">
+          <div><div class="settings-row-title">📺 ส่งไปแสดงที่จอที่ 2</div><div class="settings-row-desc">เปิด/ปิดแยกจากจอหลักได้ (ส่งภาพสดผ่านเครือข่าย เครื่องจอหลักที่สเปกไม่แรงอาจหน่วงลง)</div></div>
+          <button class="icon-btn accent" id="btn-cam-screen2">เปิด</button>
+        </div>
+        <div class="settings-toggle-row" id="cam-quality-row" style="margin-top:12px;display:none;">
+          <div><div class="settings-row-title">🎚️ คุณภาพภาพที่ส่งไปจอที่ 2</div><div class="settings-row-desc">ถ้าภาพที่จอที่ 2 หน่วง/กระตุก ลองลดคุณภาพ (ภาพที่จอหลักยังคมเท่าเดิม) — เปลี่ยนได้ทันทีโดยไม่ต้องต่อใหม่ ดูตัวเลขความหน่วงจริงได้ที่ข้อความด้านบน</div></div>
+          <select class="theme-select" id="cam-quality-select">
+            <option value="high">สูง — 720p 30fps</option>
+            <option value="medium">กลาง — 540p 24fps (ค่าเริ่มต้น)</option>
+            <option value="low">ต่ำ — 360p 15fps</option>
+          </select>
+        </div>
+        <div class="settings-toggle-row" style="margin-top:12px;">
+          <div><div class="settings-row-title">🪟 หน้าต่างเล็กมุมบนซ้ายตอนเล่นวิดีโอ</div><div class="settings-row-desc">ปิดได้ถ้าไม่อยากให้บังวิดีโอ (ตอนคิวว่างและหน้า MP3 ยังแสดงเต็มพื้นหลัง)</div></div>
+          <button class="icon-btn accent" id="btn-cam-pip">เปิด</button>
+        </div>
+        <div class="settings-toggle-row" style="margin-top:12px;">
+          <div><div class="settings-row-title">🔁 กลับด้านซ้าย-ขวา (เหมือนกระจก)</div><div class="settings-row-desc">ภาพจะเหมือนส่องกระจก ใช้กับทุกที่ที่แสดงกล้อง</div></div>
+          <button class="icon-btn" id="btn-cam-mirror">ปิด</button>
+        </div>
+      </div>
+      <p class="hint">ภาพสไลด์โชว์ (ใช้เมื่อเลือก "ภาพนิ่ง/สไลด์โชว์" และเป็นภาพสำรองถ้ากล้องใช้ไม่ได้) — แสดงแทนหน้าจอดิสโก้ตอนไม่มีเพลงเล่นอยู่ ถ้าไม่เพิ่มภาพเลยจะใช้หน้าจอเริ่มต้นเหมือนเดิม เพิ่มได้หลายภาพ (สูงสุด 20 ภาพ) ถ้ามีมากกว่า 1 ภาพจะเปลี่ยนภาพวนไปเรื่อยๆ แบบสไลด์โชว์ — ถ้าเปิดใช้งานจอที่ 2 อยู่ ภาพจะถูกส่งไปแสดงที่จอที่ 2 ให้อัตโนมัติด้วย (ใช้เวลาและลำดับเดียวกัน)</p>
       <button class="icon-btn settings-btn" id="btn-bg-add"><span>🖼️</span> เพิ่มภาพพื้นหลัง</button>
       <input type="file" id="bg-file-input" accept="image/*" multiple style="display:none;">
       <p class="hint" id="bg-status" style="margin-top:8px;">ยังไม่ได้เพิ่มภาพ — ใช้หน้าจอเริ่มต้น</p>

@@ -405,6 +405,8 @@ document.getElementById('btn-disclaimer-enter').onclick = () => {
 };
 document.getElementById('btn-role-host').onclick = () => {
   closeModal('role-select-modal');
+  camHostReady = true; // from here on this device really is the main screen: the camera may start if it's wanted
+  camSync();
 };
 document.getElementById('btn-role-screen2').onclick = () => {
   window.location.href = 'screen2.html';
@@ -579,6 +581,7 @@ function renderNowPlaying(){
   syncIdleSlideshow();
   updateChannelModeButton();
   syncLocalAudioToScreen2();
+  camSync();
 }
 
 // "Now playing" is shown as a continuously scrolling ticker (right-to-left) across the bottom of the
@@ -1291,7 +1294,7 @@ function syncLocalAudioToScreen2(){
     const existing = localStreamCalls.get(c.peer);
     if(want && c.open && !existing && peer && !peer.destroyed){
       try{
-        const call = peer.call(c.peer, localGraph.streamDest.stream, { sdpTransform: opusStereoSdp });
+        const call = peer.call(c.peer, localGraph.streamDest.stream, { sdpTransform: opusStereoSdp, metadata: { kind: 'audio' } });
         localStreamCalls.set(c.peer, call);
         call.on('close', () => { if(localStreamCalls.get(c.peer) === call) localStreamCalls.delete(c.peer); });
         call.on('error', () => { if(localStreamCalls.get(c.peer) === call) localStreamCalls.delete(c.peer); });
@@ -1575,7 +1578,7 @@ function initPeer(){
             conn.send({ type: 'LOCAL_LIBRARY', localLibrary: state.localLibrary });
             conn.send({ type: 'CHORDS_LIBRARY', chords: state.chords });
             conn.send({ type: 'SOUND_EFFECTS', effects: soundEffects });
-            if(conn._isScreen2){ bgSendSync(conn); syncLocalAudioToScreen2(); }
+            if(conn._isScreen2){ bgSendSync(conn); camSendConfig(conn); syncLocalAudioToScreen2(); camSync(); }
             if(voteTally.size > 0){
               const tally = {};
               voteTally.forEach((count, id) => { if(count > 0) tally[id] = count; });
@@ -1604,7 +1607,7 @@ function initPeer(){
       const i = connections.indexOf(conn);
       if(i > -1) connections.splice(i, 1);
       updateConnStatus();
-      if(conn._isScreen2) syncLocalAudioToScreen2();
+      if(conn._isScreen2){ syncLocalAudioToScreen2(); camSync(); }
       // Don't let a vote outlive the connection that cast it — free it up for the tally.
       const votedFor = voteByConn.get(conn.peer);
       if(votedFor){
@@ -1671,7 +1674,7 @@ function renderConnectedDevices(){
 
 // Guests can queue/remove songs and adjust tempo. Admins get full remote control,
 // equivalent to standing at the main screen — matches what a scanned Admin QR grants.
-const GUEST_ALLOWED = new Set(['ADD_SONG', 'REMOVE_SONG', 'TEMPO_UP', 'TEMPO_DOWN', 'VOLUME_UP', 'VOLUME_DOWN', 'TOGGLE_MUTE', 'PLAY_SOUND_EFFECT', 'EMOJI_REACTION', 'VOTE_NEXT_SONG', 'BG_NEED', 'CHANNEL_MODE']);
+const GUEST_ALLOWED = new Set(['ADD_SONG', 'REMOVE_SONG', 'TEMPO_UP', 'TEMPO_DOWN', 'VOLUME_UP', 'VOLUME_DOWN', 'TOGGLE_MUTE', 'PLAY_SOUND_EFFECT', 'EMOJI_REACTION', 'VOTE_NEXT_SONG', 'BG_NEED', 'CHANNEL_MODE', 'CAM_STATS']);
 const ADMIN_ALLOWED = new Set([
   ...GUEST_ALLOWED,
   'SKIP', 'PREV', 'TOGGLE_PLAY', 'INSERT_NEXT', 'MOVE_UP', 'MOVE_DOWN', 'REORDER_BEFORE', 'LOAD_PLAYLIST', 'PLAY_SONG'
@@ -1714,6 +1717,7 @@ function handleRemoteMessage(msg, conn){
     case 'VOTE_NEXT_SONG': handleVoteNextSong(conn, msg.songId); break;
     case 'BG_NEED': bgHandleNeed(conn, msg.keys); break;
     case 'CHANNEL_MODE': setChannelMode(msg.mode); break;
+    case 'CAM_STATS': camOnStats(conn, msg); break;
   }
 }
 
@@ -2782,6 +2786,7 @@ document.getElementById('btn-screen2-toggle').onclick = () => {
   btn.classList.toggle('accent', state.screen2Enabled);
   document.getElementById('audio-output-row').style.display = state.screen2Enabled ? 'flex' : 'none';
   document.getElementById('audio-latency-row').style.display = state.screen2Enabled ? 'flex' : 'none';
+  camSync();
   if(!state.screen2Enabled && state.audioOutput === 'screen2'){
     // Screen 2 just got turned off — bring audio back to the main screen automatically.
     state.audioOutput = 'screen1';
@@ -2883,6 +2888,7 @@ function updateEffectsTogglePosition(){
   const panel = document.getElementById('effects-panel');
   const shown = panel.style.display !== 'none';
   btn.style.left = (shown ? panel.getBoundingClientRect().width : 0) + 'px';
+  document.documentElement.style.setProperty('--effects-w', (shown ? panel.getBoundingClientRect().width : 0) + 'px'); // lets the camera window step aside
   btn.textContent = shown ? '◀' : '▶';
   btn.title = shown ? 'ซ่อนเสียงเอฟเฟกต์' : 'แสดงเสียงเอฟเฟกต์';
 }
@@ -3210,7 +3216,7 @@ function syncIdleSlideshow(){
   const idle = document.getElementById('idle-screen');
   const has = bgImages.length > 0;
   idle.classList.toggle('has-custom-bg', has);
-  const shouldRun = has && bgIdleVisible();
+  const shouldRun = has && bgIdleVisible() && !idle.classList.contains('has-camera');
   if(!shouldRun){
     if(bgTimer){ clearInterval(bgTimer); bgTimer = null; }
     return;
@@ -3285,6 +3291,481 @@ document.getElementById('bg-order-select').addEventListener('change', (e) => {
   bgBroadcastSync();
 });
 bgLoadAll();
+
+/* ---------------- Live camera (webcam / the device's camera) as a background ----------------
+   An alternative to the picture slideshow (one or the other, chosen in Settings). Shown full-screen on the idle
+   screen and behind the MP3 lyrics, and as a small window (top-left) while a video plays. The main screen and
+   Screen 2 can each show it or not. Whenever the camera can't be used (permission refused, unplugged, busy, no
+   camera) the screens simply go back to what they'd show without it: the slideshow pictures, or the disco lights.
+   The camera is only switched on while some screen is actually going to show it (plus a short linger so the gap
+   between two songs doesn't turn it off and on again). */
+const camCfg = {
+  source: localStorage.getItem('sriKaraoke_bgSource') === 'camera' ? 'camera' : 'slides',
+  deviceId: localStorage.getItem('sriKaraoke_camDevice') || '',
+  mirror: localStorage.getItem('sriKaraoke_camMirror') === '1',
+  host: localStorage.getItem('sriKaraoke_camHost') !== '0',
+  screen2: localStorage.getItem('sriKaraoke_camScreen2') !== '0',
+  pip: localStorage.getItem('sriKaraoke_camPip') !== '0',
+  quality: ['high', 'medium', 'low'].includes(localStorage.getItem('sriKaraoke_camQuality')) ? localStorage.getItem('sriKaraoke_camQuality') : 'medium'
+};
+// state: off (no stream, will start when needed) | starting | on | lost (unplugged / busy / not found) | denied | unsupported
+const cam = { state: 'off', stream: null, track: null, label: '', error: '', token: 0, linger: null, muteTimer: null, lastStart: 0, announced: null };
+const camStreamCalls = new Map(); // Screen 2's peer id -> the live camera MediaConnection we're sending it
+const CAM_LINGER_MS = 5000;
+// The camera only switches on once this device has been chosen as the main screen. renderNowPlaying() already runs at
+// page load, and without this the camera (and its permission prompt / light) would start behind the welcome and
+// role-selection screens — including on a device that's about to turn into a remote or Screen 2 instead.
+let camHostReady = false;
+
+function camSave(){
+  localStorage.setItem('sriKaraoke_bgSource', camCfg.source);
+  localStorage.setItem('sriKaraoke_camDevice', camCfg.deviceId);
+  localStorage.setItem('sriKaraoke_camMirror', camCfg.mirror ? '1' : '0');
+  localStorage.setItem('sriKaraoke_camHost', camCfg.host ? '1' : '0');
+  localStorage.setItem('sriKaraoke_camScreen2', camCfg.screen2 ? '1' : '0');
+  localStorage.setItem('sriKaraoke_camPip', camCfg.pip ? '1' : '0');
+  localStorage.setItem('sriKaraoke_camQuality', camCfg.quality);
+}
+
+// What the screens are in right now: nothing queued / an MP3 (full-screen lyrics page) / any other video.
+function camContext(){
+  const song = currentSong();
+  if(!song) return 'idle';
+  if(song.source === 'local'){
+    const file = localFiles.get(song.localFileId);
+    if(file && isAudioOnlyFile(file.name)) return 'mp3';
+  }
+  return 'video';
+}
+// Would this screen show the camera in this context, if the camera works?
+function camShowsOn(screen, ctx){
+  if(camCfg.source !== 'camera') return false;
+  if(screen === 'host'){
+    if(!camCfg.host) return false;
+  } else if(!(camCfg.screen2 && state.screen2Enabled && connections.some(c => c._isScreen2 && c.open))){
+    return false;
+  }
+  return ctx === 'idle' || ctx === 'mp3' || (ctx === 'video' && camCfg.pip);
+}
+function camNeeded(){
+  if(!camHostReady) return false;
+  const ctx = camContext();
+  return camShowsOn('host', ctx) || camShowsOn('screen2', ctx);
+}
+function camHealthy(){
+  return cam.state === 'on' && !!cam.stream && !!cam.track && cam.track.readyState === 'live';
+}
+
+function camStatusText(){
+  if(cam.state === 'on') return '🟢 กล้องกำลังทำงาน' + (cam.label ? ': ' + cam.label : '');
+  if(cam.state === 'starting') return '⏳ กำลังเปิดกล้อง… (ถ้ามีหน้าต่างขออนุญาต ให้กด "อนุญาต")';
+  if(cam.state === 'off') return '⚪ กล้องปิดอยู่ — จะเปิดเองอัตโนมัติตอนที่มีหน้าจอต้องแสดงกล้อง (หรือกด "เปิดกล้อง" เพื่อทดสอบ)';
+  return '🔴 ' + cam.error + ' — ตอนนี้ใช้ภาพสไลด์โชว์ (หรือไฟดิสโก้ถ้าไม่ได้ตั้งภาพไว้) แทนไปก่อน';
+}
+function camSetToggle(id, on){
+  const b = document.getElementById(id);
+  b.textContent = on ? 'เปิด' : 'ปิด';
+  b.classList.toggle('accent', on);
+}
+function camUpdateSettingsUI(){
+  document.getElementById('bg-source-select').value = camCfg.source;
+  document.getElementById('bg-camera-block').style.display = camCfg.source === 'camera' ? 'block' : 'none';
+  document.getElementById('cam-status').textContent = camStatusText();
+  camSetToggle('btn-cam-host', camCfg.host);
+  camSetToggle('btn-cam-screen2', camCfg.screen2);
+  camSetToggle('btn-cam-pip', camCfg.pip);
+  camSetToggle('btn-cam-mirror', camCfg.mirror);
+  document.getElementById('cam-screen2-row').style.display = state.screen2Enabled ? 'flex' : 'none';
+  document.getElementById('cam-quality-row').style.display = state.screen2Enabled ? 'flex' : 'none';
+  document.getElementById('cam-quality-select').value = camCfg.quality;
+  const linkText = camLinkText();
+  const linkEl = document.getElementById('cam-link-status');
+  linkEl.textContent = linkText;
+  linkEl.style.display = linkText ? 'block' : 'none';
+}
+
+async function camRefreshDevices(){
+  if(!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices)) return;
+  let devs = [];
+  try{ devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'); }catch(e){ return; }
+  const sel = document.getElementById('cam-device-select');
+  sel.innerHTML = '';
+  sel.appendChild(new Option('กล้องเริ่มต้นของเครื่อง', ''));
+  devs.forEach((d, i) => sel.appendChild(new Option(d.label || ('กล้อง ' + (i + 1)), d.deviceId)));
+  sel.value = camCfg.deviceId;
+  if(sel.value !== camCfg.deviceId) sel.value = ''; // the remembered camera isn't plugged in right now
+}
+
+function camReleaseStream(){
+  cam.token++; // cancels a start that is still waiting on the permission prompt
+  clearTimeout(cam.muteTimer); cam.muteTimer = null;
+  if(cam.stream){ cam.stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} }); }
+  cam.stream = null; cam.track = null; cam.label = '';
+}
+
+async function camStart(userInitiated){
+  if(cam.state === 'starting' || cam.state === 'on') return;
+  if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){
+    cam.state = 'unsupported';
+    cam.error = 'เบราว์เซอร์นี้ใช้กล้องไม่ได้ (ต้องเปิดเว็บผ่าน HTTPS และเบราว์เซอร์ต้องรองรับ)';
+    if(userInitiated) showToast('📷 ' + cam.error, true);
+    camSync();
+    return;
+  }
+  const token = ++cam.token;
+  cam.state = 'starting'; cam.error = ''; cam.lastStart = Date.now();
+  camUpdateSettingsUI();
+  let stream = null;
+  try{
+    const video = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+    if(camCfg.deviceId) video.deviceId = { ideal: camCfg.deviceId }; // "ideal", so a camera that's no longer there falls back to the default instead of failing
+    stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+  }catch(e){
+    if(token !== cam.token) return; // superseded while waiting
+    const n = e && e.name;
+    if(n === 'NotAllowedError' || n === 'SecurityError' || n === 'PermissionDeniedError'){
+      cam.state = 'denied';
+      cam.error = 'ไม่ได้รับอนุญาตให้ใช้กล้อง (กดไอคอนกล้อง/แม่กุญแจที่แถบที่อยู่ของเบราว์เซอร์ เลือก "อนุญาต" แล้วกด "เปิดกล้อง")';
+    } else if(n === 'NotFoundError' || n === 'DevicesNotFoundError' || n === 'OverconstrainedError'){
+      cam.state = 'lost';
+      cam.error = 'ไม่พบกล้อง (ตรวจสอบว่าเสียบเว็บแคมแล้ว)';
+    } else {
+      cam.state = 'lost';
+      cam.error = 'เปิดกล้องไม่ได้ (อาจมีโปรแกรมอื่นกำลังใช้กล้องอยู่)';
+    }
+    if(userInitiated || cam.announced !== cam.state){ showToast('📷 ' + cam.error, true); }
+    cam.announced = cam.state;
+    camSync();
+    return;
+  }
+  // Settings changed (or the camera stopped being wanted) while the prompt was open: don't keep a camera running for nothing
+  if(token !== cam.token || camCfg.source !== 'camera'){
+    stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
+    if(token === cam.token){ cam.state = 'off'; camSync(); }
+    return;
+  }
+  const track = stream.getVideoTracks()[0];
+  if(!track){
+    stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
+    cam.state = 'lost'; cam.error = 'ไม่พบภาพจากกล้อง';
+    camSync();
+    return;
+  }
+  cam.stream = stream; cam.track = track; cam.label = track.label || '';
+  cam.state = 'on'; cam.error = ''; cam.announced = null;
+  track.addEventListener('ended', () => { if(cam.track === track) camLost('กล้องถูกถอดออกหรือหยุดทำงาน'); });
+  track.addEventListener('mute', () => { // no pictures coming in: give it a few seconds to recover before giving up on it
+    if(cam.track !== track) return;
+    clearTimeout(cam.muteTimer);
+    cam.muteTimer = setTimeout(() => { if(cam.track === track && track.muted) camLost('กล้องไม่ส่งภาพ'); }, 4000);
+  });
+  track.addEventListener('unmute', () => { clearTimeout(cam.muteTimer); cam.muteTimer = null; });
+  camRefreshDevices(); // device names are only available once permission has been given
+  camSync();
+}
+
+function camLost(msg){
+  camReleaseStream();
+  cam.state = 'lost'; cam.error = msg;
+  showToast('📷 ' + msg + ' — กลับไปใช้พื้นหลังเดิมให้อัตโนมัติ', true);
+  cam.announced = 'lost';
+  camSync();
+}
+
+// Brings a camera that failed back if the device may have returned (re-plugged, tab visible again, ...).
+function camRecover(){
+  if(camCfg.source !== 'camera') return;
+  if(cam.state === 'on' && cam.track && cam.track.readyState !== 'live'){ camLost('กล้องหยุดทำงาน'); return; }
+  if(cam.state === 'lost' && camNeeded() && Date.now() - cam.lastStart > 2000){
+    cam.state = 'off';
+    camSync();
+  }
+}
+
+// Shows the camera wherever it should be showing right now (and puts the normal background back everywhere else).
+function camRenderUI(){
+  const ctx = camContext();
+  const healthy = camHealthy();
+  const hostShows = healthy && camShowsOn('host', ctx);
+  const attach = (id, on) => {
+    const el = document.getElementById(id);
+    if(on){
+      if(el.srcObject !== cam.stream){ el.srcObject = cam.stream; }
+      const p = el.play(); if(p && p.catch) p.catch(() => {});
+    } else if(el.srcObject){
+      el.srcObject = null;
+    }
+  };
+  const idleOn = hostShows && ctx === 'idle';
+  const mp3On = hostShows && ctx === 'mp3';
+  const pipOn = hostShows && ctx === 'video';
+  document.getElementById('idle-screen').classList.toggle('has-camera', idleOn);
+  document.getElementById('mp3-now-playing').classList.toggle('has-camera', mp3On);
+  document.getElementById('cam-pip').style.display = pipOn ? 'block' : 'none';
+  attach('idle-cam', idleOn); attach('mp3-cam', mp3On); attach('cam-pip-video', pipOn);
+  document.body.classList.toggle('cam-mirror', camCfg.mirror);
+  syncIdleSlideshow(); // the slideshow steps aside while the camera covers the idle screen, and resumes the moment it doesn't
+}
+
+function camSendConfig(conn){
+  if(conn && conn.open) conn.send({ type: 'CAM_CONFIG', source: camCfg.source, mirror: camCfg.mirror, pip: camCfg.pip });
+}
+function camBroadcastConfig(){
+  connections.forEach(c => { if(c._isScreen2) camSendConfig(c); });
+}
+
+// Sends the live picture to every connected Screen 2 that should be showing it, and hangs up when it shouldn't.
+function camSyncScreen2(){
+  const want = camHealthy() && camShowsOn('screen2', camContext());
+  connections.forEach(c => {
+    if(!c._isScreen2) return;
+    const existing = camStreamCalls.get(c.peer);
+    if(want && c.open && !existing && peer && !peer.destroyed){
+      try{
+        const call = peer.call(c.peer, cam.stream, { metadata: { kind: 'camera' } });
+        camStreamCalls.set(c.peer, call);
+        const gone = () => { if(camStreamCalls.get(c.peer) === call) camStreamCalls.delete(c.peer); };
+        call.on('close', gone);
+        call.on('error', gone);
+        camScheduleQuality(call); // keep the live picture light on the network and on a modest main-screen device
+      }catch(e){
+        console.warn('[Camera] Could not start sending the camera to Screen 2 (it keeps its normal background)', e);
+      }
+    } else if(!want && existing){
+      try{ existing.close(); }catch(e){}
+      camStreamCalls.delete(c.peer);
+    }
+  });
+  for(const [peerId, call] of [...camStreamCalls]){ // Screen 2 went away
+    if(!connections.some(c => c.peer === peerId && c.open)){
+      try{ call.close(); }catch(e){}
+      camStreamCalls.delete(peerId);
+    }
+  }
+  camStatsSync();
+}
+
+/* ---- How much picture goes to Screen 2 ----
+   The camera itself is captured at 720p for this screen; what's SENT can be smaller. A background doesn't need every
+   pixel, and encoding less is the quickest way to take load (and delay) off a modest main-screen device or a weak WiFi. */
+const CAM_QUALITY = {
+  high:   { label: '720p 30fps', scale: 1,     fps: 30, kbps: 1500 },
+  medium: { label: '540p 24fps', scale: 4 / 3, fps: 24, kbps: 900 },
+  low:    { label: '360p 15fps', scale: 2,     fps: 15, kbps: 450 }
+};
+function camApplyQuality(call){
+  const q = CAM_QUALITY[camCfg.quality] || CAM_QUALITY.medium;
+  try{
+    (call.peerConnection ? call.peerConnection.getSenders() : []).forEach(sender => {
+      if(!sender.track || sender.track.kind !== 'video') return;
+      const params = sender.getParameters();
+      if(!params.encodings || !params.encodings.length) params.encodings = [{}];
+      const enc = params.encodings[0];
+      enc.maxBitrate = q.kbps * 1000;
+      enc.maxFramerate = q.fps;
+      enc.scaleResolutionDownBy = q.scale;
+      sender.setParameters(params).catch(() => {});
+    });
+  }catch(e){}
+}
+// The sender isn't always ready to take new parameters the instant the call is created, so try a few times.
+function camScheduleQuality(call){
+  [0, 800, 2500, 6000].forEach(ms => setTimeout(() => {
+    if([...camStreamCalls.values()].includes(call)) camApplyQuality(call);
+  }, ms));
+}
+
+/* ---- Is the picture on Screen 2 really delayed, and why? ----
+   Screen 2 and this screen each read WebRTC's own statistics every few seconds; the result is shown in Settings so a
+   long delay can be traced to its cause (this screen's CPU, the WiFi, Screen 2's buffer/CPU, or a relayed route). */
+function camSummarizeStats(report, prev){
+  const num = v => (typeof v === 'number' && isFinite(v)) ? v : null;
+  const all = [], byId = new Map();
+  report.forEach(r => { all.push(r); byId.set(r.id, r); });
+  const isVideo = r => (r.kind || r.mediaType) === 'video';
+  const outV = all.find(r => r.type === 'outbound-rtp' && isVideo(r)) || null;
+  const inV = all.find(r => r.type === 'inbound-rtp' && isVideo(r)) || null;
+  const transport = all.find(r => r.type === 'transport' && r.selectedCandidatePairId);
+  const pair = (transport && byId.get(transport.selectedCandidatePairId))
+    || all.find(r => r.type === 'candidate-pair' && (r.nominated || r.selected) && r.state === 'succeeded') || null;
+  const next = {}, result = { out: null, in: null, route: null };
+  const avg = (curNum, curDen, prevNum, prevDen) => (prev && curDen != null && prevDen != null && curNum != null && prevNum != null && curDen > prevDen)
+    ? (curNum - prevNum) / (curDen - prevDen) * 1000 : null; // average per frame since the previous reading, in ms
+  if(outV){
+    next.encTime = num(outV.totalEncodeTime); next.encFrames = num(outV.framesEncoded);
+    result.out = { w: num(outV.frameWidth), h: num(outV.frameHeight), fps: num(outV.framesPerSecond),
+      limit: outV.qualityLimitationReason || 'none', encodeMs: avg(next.encTime, next.encFrames, prev && prev.encTime, prev && prev.encFrames) };
+  }
+  if(inV){
+    next.jbDelay = num(inV.jitterBufferDelay); next.jbCount = num(inV.jitterBufferEmittedCount);
+    next.decTime = num(inV.totalDecodeTime); next.decFrames = num(inV.framesDecoded);
+    next.lost = num(inV.packetsLost); next.recv = num(inV.packetsReceived);
+    let lossPct = null;
+    if(prev && prev.recv != null && next.recv != null){
+      const got = next.recv - prev.recv, lost = Math.max(0, (next.lost || 0) - (prev.lost || 0));
+      if(got + lost > 0) lossPct = lost / (got + lost) * 100;
+    }
+    result.in = { w: num(inV.frameWidth), h: num(inV.frameHeight), fps: num(inV.framesPerSecond), dropped: num(inV.framesDropped), lossPct,
+      jbMs: avg(next.jbDelay, next.jbCount, prev && prev.jbDelay, prev && prev.jbCount),
+      decodeMs: avg(next.decTime, next.decFrames, prev && prev.decTime, prev && prev.decFrames) };
+  }
+  if(pair){
+    const lt = (byId.get(pair.localCandidateId) || {}).candidateType, rt = (byId.get(pair.remoteCandidateId) || {}).candidateType;
+    result.route = { kind: (lt === 'relay' || rt === 'relay') ? 'relay' : ((lt || rt) ? 'direct' : 'unknown'),
+      rttMs: num(pair.currentRoundTripTime) != null ? pair.currentRoundTripTime * 1000 : null };
+  }
+  return { result, next };
+}
+function camEstimateDelayMs(host, s2){
+  if(!(s2 && s2.in && s2.in.jbMs != null)) return null; // needs Screen 2's side of the story
+  const rtt = (s2.route && s2.route.rttMs != null) ? s2.route.rttMs : (host && host.route && host.route.rttMs) || 0;
+  return Math.round(33 + ((host && host.out && host.out.encodeMs) || 0) + rtt / 2 + s2.in.jbMs + (s2.in.decodeMs || 0));
+}
+function camLinkAdvice(host, s2){
+  const tips = [];
+  const route = (s2 && s2.route) || (host && host.route);
+  if(route && route.kind === 'relay') tips.push('ภาพวิ่งผ่านเซิร์ฟเวอร์ relay ซึ่งมักช้ากว่าการต่อตรง — ตรวจว่าจอหลักกับจอที่ 2 อยู่ใน WiFi/วงเครือข่ายเดียวกัน');
+  if(host && host.out){
+    if(host.out.limit === 'cpu') tips.push('เครื่องจอหลักเข้ารหัสภาพไม่ทัน (CPU) — ลดคุณภาพภาพที่ส่ง หรือปิดหน้าต่างเล็ก/สวิตช์ส่งไปจอที่ 2');
+    else if(host.out.limit === 'bandwidth') tips.push('เครือข่ายไม่พอสำหรับภาพนี้ — ลดคุณภาพภาพที่ส่ง');
+    if(host.out.encodeMs != null && host.out.encodeMs > 30) tips.push('เครื่องจอหลักใช้เวลาเข้ารหัสต่อเฟรมนาน — ลดคุณภาพภาพที่ส่ง');
+  }
+  if(s2 && s2.in){
+    if(s2.in.jbMs != null && s2.in.jbMs > 250) tips.push('จอที่ 2 ต้องพักภาพในบัฟเฟอร์นาน (สัญญาณไม่นิ่ง/แพ็กเก็ตหาย) — ตรวจ WiFi ของจอที่ 2');
+    if(s2.in.decodeMs != null && s2.in.decodeMs > 30) tips.push('เครื่องจอที่ 2 ถอดรหัสภาพไม่ทัน — ลดคุณภาพภาพที่ส่ง');
+    if(s2.in.lossPct != null && s2.in.lossPct > 3) tips.push('แพ็กเก็ตภาพสูญหายราว ' + Math.round(s2.in.lossPct) + '% — WiFi ไม่นิ่ง');
+  }
+  return tips;
+}
+const camLink = { host: null, s2: null, s2At: 0 };
+function camLinkText(){
+  if(camStreamCalls.size === 0) return '';
+  const r = n => Math.round(n);
+  const lines = [];
+  const o = camLink.host && camLink.host.out;
+  if(o){
+    lines.push('ส่งไปจอที่ 2: ' + (o.w && o.h ? o.w + '×' + o.h : '—') + (o.fps != null ? ' · ' + r(o.fps) + ' fps' : '')
+      + (o.encodeMs != null ? ' · เข้ารหัส ' + r(o.encodeMs) + ' ms/เฟรม' : '') + (o.limit && o.limit !== 'none' ? ' · ถูกจำกัดโดย ' + o.limit : ''));
+  } else {
+    lines.push('ส่งไปจอที่ 2: กำลังเริ่มวัดค่า…');
+  }
+  const fresh = camLink.s2 && Date.now() - camLink.s2At < 12000;
+  const s2 = fresh ? camLink.s2 : null;
+  if(s2 && s2.in){
+    const route = s2.route && s2.route.kind === 'relay' ? 'ผ่าน relay' : (s2.route && s2.route.kind === 'direct' ? 'ต่อตรง' : 'ไม่ทราบ');
+    lines.push('จอที่ 2 รับ: ' + (s2.in.fps != null ? r(s2.in.fps) + ' fps' : '—') + (s2.in.jbMs != null ? ' · บัฟเฟอร์ ' + r(s2.in.jbMs) + ' ms' : '')
+      + (s2.in.decodeMs != null ? ' · ถอดรหัส ' + r(s2.in.decodeMs) + ' ms' : '') + (s2.route && s2.route.rttMs != null ? ' · RTT ' + r(s2.route.rttMs) + ' ms' : '')
+      + ' · ' + route + (s2.in.dropped ? ' · ทิ้ง ' + s2.in.dropped + ' เฟรม' : ''));
+  } else {
+    lines.push('จอที่ 2 รับ: รอรายงานจากจอที่ 2…');
+  }
+  const est = camEstimateDelayMs(camLink.host, s2);
+  if(est != null) lines.push('ความหน่วงโดยประมาณ ≈ ' + (Math.round(est / 10) * 10) + ' ms (ปกติในวง WiFi เดียวกันราว 150-400 ms)' + (est > 800 ? ' — สูงกว่าปกติ' : ''));
+  camLinkAdvice(camLink.host, s2).forEach(t => lines.push('⚠️ ' + t));
+  return lines.join('\n');
+}
+let camStatsTimer = null;
+const camStatsPrev = new Map(); // Screen 2's peer id -> previous reading of this side's own stats
+async function camPollStats(){
+  for(const [peerId, call] of [...camStreamCalls]){
+    try{
+      const pc = call.peerConnection;
+      if(!pc || !pc.getStats) continue;
+      const report = await pc.getStats();
+      if(camStreamCalls.get(peerId) !== call) continue; // hung up while the reading was in flight: don't bring old numbers back
+      const { result, next } = camSummarizeStats(report, camStatsPrev.get(peerId));
+      camStatsPrev.set(peerId, next);
+      camLink.host = result;
+    }catch(e){}
+  }
+  camUpdateSettingsUI();
+}
+function camStatsSync(){ // reads only while a picture is actually being sent
+  if(camStreamCalls.size && !camStatsTimer){
+    camLink.host = null; camLink.s2 = null; camStatsPrev.clear(); // a new run starts from nothing, never from the last one's numbers
+    camStatsTimer = setInterval(camPollStats, 3000);
+  } else if(!camStreamCalls.size && camStatsTimer){
+    clearInterval(camStatsTimer); camStatsTimer = null;
+    camLink.host = null; camLink.s2 = null; camStatsPrev.clear();
+    camUpdateSettingsUI();
+  }
+}
+// What Screen 2 reports about the picture it receives (Screen 2 is a plain guest, so every value is checked here).
+function camOnStats(conn, msg){
+  if(!conn._isScreen2 || !msg || typeof msg !== 'object') return;
+  const clamp = (v, lo, hi) => (typeof v === 'number' && isFinite(v)) ? Math.min(hi, Math.max(lo, v)) : null;
+  const i = msg.in && typeof msg.in === 'object' ? msg.in : null;
+  const rt = msg.route && typeof msg.route === 'object' ? msg.route : null;
+  if(!i && !rt) return; // nothing usable in it: keep what we already know rather than wiping it
+  camLink.s2 = {
+    in: i ? { fps: clamp(i.fps, 0, 240), jbMs: clamp(i.jbMs, 0, 60000), decodeMs: clamp(i.decodeMs, 0, 60000), lossPct: clamp(i.lossPct, 0, 100), dropped: clamp(i.dropped, 0, 1e9) } : null,
+    route: rt ? { kind: ['direct', 'relay', 'unknown'].includes(rt.kind) ? rt.kind : 'unknown', rttMs: clamp(rt.rttMs, 0, 60000) } : null
+  };
+  camLink.s2At = Date.now();
+  camUpdateSettingsUI();
+}
+
+// The one place that decides what the camera should be doing. Idempotent: safe to call from anywhere, any number of times.
+function camSync(){
+  if(camCfg.source !== 'camera'){
+    if(cam.stream || cam.state !== 'off') camReleaseStream();
+    cam.state = 'off'; cam.error = '';
+    clearTimeout(cam.linger); cam.linger = null;
+  } else if(camNeeded()){
+    clearTimeout(cam.linger); cam.linger = null;
+    if(cam.state === 'off') camStart(false);
+  } else if(cam.state === 'on' && !cam.linger){
+    cam.linger = setTimeout(() => {
+      cam.linger = null;
+      if(camCfg.source === 'camera' && !camNeeded() && cam.state === 'on'){ camReleaseStream(); cam.state = 'off'; camSync(); }
+    }, CAM_LINGER_MS);
+  }
+  camRenderUI();
+  camSyncScreen2();
+  camUpdateSettingsUI();
+}
+
+document.getElementById('bg-source-select').addEventListener('change', (e) => {
+  camCfg.source = e.target.value === 'camera' ? 'camera' : 'slides';
+  camSave();
+  if(camCfg.source === 'camera'){
+    cam.state = 'off'; cam.error = ''; cam.announced = null;
+    camStart(true); // ask for permission now, while the operator is looking at the settings, and list the cameras
+  }
+  camSync();
+  camBroadcastConfig();
+});
+document.getElementById('cam-device-select').addEventListener('change', (e) => {
+  camCfg.deviceId = e.target.value;
+  camSave();
+  camReleaseStream(); cam.state = 'off'; cam.announced = null;
+  camStart(true);
+  camSync();
+});
+document.getElementById('cam-quality-select').addEventListener('change', (e) => {
+  camCfg.quality = ['high', 'medium', 'low'].includes(e.target.value) ? e.target.value : 'medium';
+  camSave();
+  camStreamCalls.forEach(call => camApplyQuality(call)); // takes effect on the live picture straight away, no reconnecting
+});
+document.getElementById('btn-cam-retry').onclick = () => {
+  camReleaseStream(); cam.state = 'off'; cam.announced = null;
+  camStart(true);
+  camSync();
+};
+[['btn-cam-host', 'host'], ['btn-cam-screen2', 'screen2'], ['btn-cam-pip', 'pip'], ['btn-cam-mirror', 'mirror']].forEach(([id, key]) => {
+  document.getElementById(id).onclick = () => {
+    camCfg[key] = !camCfg[key];
+    camSave();
+    camSync();
+    camBroadcastConfig();
+  };
+});
+document.addEventListener('visibilitychange', () => { if(!document.hidden) camRecover(); });
+if(navigator.mediaDevices && navigator.mediaDevices.addEventListener){
+  navigator.mediaDevices.addEventListener('devicechange', () => { camRefreshDevices(); camRecover(); });
+}
+camUpdateSettingsUI();
+camRefreshDevices();
 
 /* ---------------- App-level fullscreen (the whole app UI, not YouTube's own fullscreen) ---------------- */
 function isFullscreen(){
@@ -3421,6 +3902,7 @@ if(state.screen2Enabled){
   document.getElementById('btn-screen2-toggle').classList.add('accent');
   document.getElementById('audio-output-row').style.display = 'flex';
   document.getElementById('audio-latency-row').style.display = 'flex';
+  document.getElementById('cam-screen2-row').style.display = 'flex';
   document.getElementById('btn-audio-output-toggle').textContent = state.audioOutput === 'screen2' ? 'จอที่ 2' : 'จอหลัก';
 }
 // Same for the scoring-system toggle (button defaults to "เปิด"/accent in the HTML, so only

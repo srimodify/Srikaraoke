@@ -118,9 +118,20 @@ function connectToRoom(roomId, pin, isReconnect){
   if(peer){ try{ peer.destroy(); }catch(e){} }
   peer = new Peer(undefined, { config: ICE_CONFIG });
   s2StreamCall = null; detachStreamAudio(); // a fresh Peer means any earlier feed is gone
+  s2Cam.call = null; s2Cam.stream = null; s2CamRender(); s2CamStatsSync();
   // The host sends a local file's sound here as a one-way audio call whenever sound is routed to this screen.
   peer.on('call', (call) => {
-    if(call.peer !== currentRoomId){ try{ call.close(); }catch(e){} return; } // only the host (its peer id is the room id) may send sound
+    if(call.peer !== currentRoomId){ try{ call.close(); }catch(e){} return; } // only the host (its peer id is the room id) may send anything here
+    if(call.metadata && call.metadata.kind === 'camera'){ // the host's live camera picture
+      if(s2Cam.call && s2Cam.call !== call){ try{ s2Cam.call.close(); }catch(e){} }
+      s2Cam.call = call;
+      call.answer(); // receive only
+      call.on('stream', (stream) => { s2Cam.stream = stream; s2CamRender(); s2CamStatsSync(); });
+      const camGone = () => { if(s2Cam.call === call){ s2Cam.call = null; s2Cam.stream = null; s2CamRender(); s2CamStatsSync(); } };
+      call.on('close', camGone);
+      call.on('error', camGone);
+      return;
+    }
     if(s2StreamCall && s2StreamCall !== call){ try{ s2StreamCall.close(); }catch(e){} }
     s2StreamCall = call;
     call.answer(undefined, { sdpTransform: opusStereoSdp }); // receive only; ask for stereo
@@ -239,6 +250,7 @@ function handleHostMessage(msg){
     playSoundEffectOnScreen2(msg.file);
     return;
   }
+  if(msg.type === 'CAM_CONFIG'){ s2CamOnConfig(msg); return; }
   if(msg.type === 'BG_SYNC'){ s2BgOnSync(msg); return; }
   if(msg.type === 'BG_IMAGE'){ s2BgOnImage(msg); return; }
   if(msg.type === 'EMOJI_REACTION'){
@@ -589,7 +601,7 @@ function s2BgSync(){
       el.style.backgroundImage = '';
     });
   }
-  if(!show){
+  if(!show || idle.classList.contains('has-camera')){ // nothing to show, or the live camera is covering it for now
     if(s2Bg.timer){ clearInterval(s2Bg.timer); s2Bg.timer = null; }
     return;
   }
@@ -629,6 +641,111 @@ function s2BgOnImage(msg){
   s2BgSync();
 }
 
+/* ---------------- Live camera (sent over by the host) ----------------
+   Same places as on the host: full-screen on the idle screen, behind the MP3 lyrics, and a small window at the
+   top-left while a video plays. The host decides whether to send it at all (its per-screen switch); here we only
+   have to show what arrives, and quietly go back to the normal background the moment it stops arriving. */
+const s2Cam = { stream: null, call: null, source: 'slides', mirror: false, pip: true };
+function s2CamContext(){
+  const song = myQueue.find(s => s.id === myCurrentId);
+  if(!song) return 'idle';
+  if(song.source === 'local' && s2Mp3Data && s2Mp3Data.songId === song.id) return 'mp3';
+  return 'video';
+}
+function s2CamLive(){
+  const track = s2Cam.stream && s2Cam.stream.getVideoTracks()[0];
+  return !!track && track.readyState === 'live';
+}
+// Idempotent — called every second from renderDisplay() and whenever the camera / its settings change.
+function s2CamRender(){
+  const ctx = s2CamContext();
+  const show = s2Cam.source === 'camera' && s2CamLive() && (ctx !== 'video' || s2Cam.pip);
+  const idleOn = show && ctx === 'idle', mp3On = show && ctx === 'mp3', pipOn = show && ctx === 'video';
+  const attach = (id, on) => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    if(on){
+      if(el.srcObject !== s2Cam.stream) el.srcObject = s2Cam.stream;
+      const p = el.play(); if(p && p.catch) p.catch(() => {});
+    } else if(el.srcObject){
+      el.srcObject = null;
+    }
+  };
+  document.getElementById('d-idle').classList.toggle('has-camera', idleOn);
+  document.getElementById('mp3-now-playing').classList.toggle('has-camera', mp3On);
+  document.getElementById('s2-cam-pip').style.display = pipOn ? 'block' : 'none';
+  attach('s2-idle-cam', idleOn); attach('s2-mp3-cam', mp3On); attach('s2-cam-pip-video', pipOn);
+  document.body.classList.toggle('cam-mirror', s2Cam.mirror);
+  s2BgSync(); // the slideshow steps aside while the camera covers the idle screen, and resumes when it doesn't
+}
+function s2CamOnConfig(msg){
+  s2Cam.source = msg.source === 'camera' ? 'camera' : 'slides';
+  s2Cam.mirror = !!msg.mirror;
+  s2Cam.pip = msg.pip !== false;
+  if(s2Cam.source !== 'camera' && s2Cam.call){ try{ s2Cam.call.close(); }catch(e){} s2Cam.call = null; s2Cam.stream = null; }
+  s2CamRender();
+  s2CamStatsSync();
+}
+
+/* Reports how the camera picture is arriving (frame rate, buffering, decode time, route) back to the main screen every
+   few seconds while it is — shown in the main screen's Settings, so a delayed picture can be traced to its cause.
+   Same statistics reader as the main screen's (the two pages share no code). */
+function camSummarizeStats(report, prev){
+  const num = v => (typeof v === 'number' && isFinite(v)) ? v : null;
+  const all = [], byId = new Map();
+  report.forEach(r => { all.push(r); byId.set(r.id, r); });
+  const isVideo = r => (r.kind || r.mediaType) === 'video';
+  const outV = all.find(r => r.type === 'outbound-rtp' && isVideo(r)) || null;
+  const inV = all.find(r => r.type === 'inbound-rtp' && isVideo(r)) || null;
+  const transport = all.find(r => r.type === 'transport' && r.selectedCandidatePairId);
+  const pair = (transport && byId.get(transport.selectedCandidatePairId))
+    || all.find(r => r.type === 'candidate-pair' && (r.nominated || r.selected) && r.state === 'succeeded') || null;
+  const next = {}, result = { out: null, in: null, route: null };
+  const avg = (curNum, curDen, prevNum, prevDen) => (prev && curDen != null && prevDen != null && curNum != null && prevNum != null && curDen > prevDen)
+    ? (curNum - prevNum) / (curDen - prevDen) * 1000 : null; // average per frame since the previous reading, in ms
+  if(outV){
+    next.encTime = num(outV.totalEncodeTime); next.encFrames = num(outV.framesEncoded);
+    result.out = { w: num(outV.frameWidth), h: num(outV.frameHeight), fps: num(outV.framesPerSecond),
+      limit: outV.qualityLimitationReason || 'none', encodeMs: avg(next.encTime, next.encFrames, prev && prev.encTime, prev && prev.encFrames) };
+  }
+  if(inV){
+    next.jbDelay = num(inV.jitterBufferDelay); next.jbCount = num(inV.jitterBufferEmittedCount);
+    next.decTime = num(inV.totalDecodeTime); next.decFrames = num(inV.framesDecoded);
+    next.lost = num(inV.packetsLost); next.recv = num(inV.packetsReceived);
+    let lossPct = null;
+    if(prev && prev.recv != null && next.recv != null){
+      const got = next.recv - prev.recv, lost = Math.max(0, (next.lost || 0) - (prev.lost || 0));
+      if(got + lost > 0) lossPct = lost / (got + lost) * 100;
+    }
+    result.in = { w: num(inV.frameWidth), h: num(inV.frameHeight), fps: num(inV.framesPerSecond), dropped: num(inV.framesDropped), lossPct,
+      jbMs: avg(next.jbDelay, next.jbCount, prev && prev.jbDelay, prev && prev.jbCount),
+      decodeMs: avg(next.decTime, next.decFrames, prev && prev.decTime, prev && prev.decFrames) };
+  }
+  if(pair){
+    const lt = (byId.get(pair.localCandidateId) || {}).candidateType, rt = (byId.get(pair.remoteCandidateId) || {}).candidateType;
+    result.route = { kind: (lt === 'relay' || rt === 'relay') ? 'relay' : ((lt || rt) ? 'direct' : 'unknown'),
+      rttMs: num(pair.currentRoundTripTime) != null ? pair.currentRoundTripTime * 1000 : null };
+  }
+  return { result, next };
+}
+let s2CamStatsTimer = null, s2CamStatsPrev = null;
+async function s2CamStatsPoll(){
+  const call = s2Cam.call;
+  if(!call || !call.peerConnection || !conn || !conn.open) return;
+  try{
+    const report = await call.peerConnection.getStats();
+    if(s2Cam.call !== call) return; // the call ended while the reading was in flight
+    const { result, next } = camSummarizeStats(report, s2CamStatsPrev);
+    s2CamStatsPrev = next;
+    if(conn && conn.open) conn.send({ type: 'CAM_STATS', in: result.in, route: result.route });
+  }catch(e){}
+}
+function s2CamStatsSync(){ // only while a picture is actually arriving
+  const live = !!(s2Cam.call && s2Cam.stream);
+  if(live && !s2CamStatsTimer){ s2CamStatsTimer = setInterval(s2CamStatsPoll, 3000); }
+  else if(!live && s2CamStatsTimer){ clearInterval(s2CamStatsTimer); s2CamStatsTimer = null; s2CamStatsPrev = null; }
+}
+
 function renderDisplay(){
   const song = myQueue.find(s => s.id === myCurrentId);
   const idle = document.getElementById('d-idle');
@@ -640,6 +757,7 @@ function renderDisplay(){
 
   if(song) hasEverPlayed = true;
   s2BgSetActive(!song); // pictures only while the queue is empty — not over a song, nor the "playing on the main screen" note
+  s2CamRender();
 
   if(song && song.source === 'local'){
     if(s2Mp3Data && s2Mp3Data.songId === song.id){

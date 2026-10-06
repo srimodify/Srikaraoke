@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sri-karaoke-v23';
+const CACHE_NAME = 'sri-karaoke-v27';
 const APP_SHELL = [
   './index.html',
   './remote.html',
