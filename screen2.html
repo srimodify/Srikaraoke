@@ -196,6 +196,11 @@ input,button{font-family:inherit;}
   .loading-spinner{ animation-duration:2.5s; }
 }
 
+#s2-audio-unlock{
+  position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:600;
+  background:var(--gold);color:#1B1533;font-weight:700;font-size:16px;
+  padding:12px 26px;border-radius:999px;box-shadow:0 8px 28px rgba(0,0,0,.5);cursor:pointer;
+}
 #d-idle{
   position:absolute;inset:0;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -210,6 +215,23 @@ input,button{font-family:inherit;}
 #d-idle .display span{color:var(--gold);}
 #d-idle p{color:var(--text-dim);font-size:15px;max-width:420px;text-align:center;line-height:1.6;position:relative;z-index:3;}
 #d-idle .display.empty-queue-blink{font-size:clamp(16px,2.4vw,26px);}
+
+/* ---------- Idle background pictures sent from the host (slideshow) ---------- */
+.idle-bg{position:absolute;inset:0;z-index:0;display:none;pointer-events:none;}
+#d-idle.has-custom-bg .idle-bg{display:block;}
+.idle-bg-layer{
+  position:absolute;inset:0;
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+  opacity:0;transition:opacity 1.2s ease;
+}
+.idle-bg-layer.visible{opacity:1;}
+.idle-bg-shade{position:absolute;inset:0;background:linear-gradient(180deg, rgba(15,12,30,.25) 0%, rgba(15,12,30,.45) 100%);}
+#d-idle.has-custom-bg .spotlights,
+#d-idle.has-custom-bg .disco-glare,
+#d-idle.has-custom-bg .disco-lights,
+#d-idle.has-custom-bg .led-lights{display:none !important;}
+#d-idle.has-custom-bg .display{text-shadow:0 2px 14px rgba(0,0,0,.9);}
+@media (prefers-reduced-motion: reduce){ .idle-bg-layer{ transition-duration:.01s; } }
 
 /* ---------- idle screensaver: same disco lighting as the main screen (logo/text stay put, only the
    ambient lighting behind them animates) ---------- */
@@ -411,6 +433,8 @@ input,button{font-family:inherit;}
   <div id="d-player-wrap">
     <div id="d-player"></div>
     <audio id="sfx-player"></audio>
+    <audio id="s2-stream-audio" autoplay playsinline></audio>
+    <div id="s2-audio-unlock" style="display:none;">🔊 แตะที่หน้าจอเพื่อเปิดเสียง</div>
     <div id="mp3-now-playing" style="display:none;">
       <div class="mp3-bg" id="mp3-bg"></div>
       <div class="mp3-info">
@@ -443,6 +467,11 @@ input,button{font-family:inherit;}
       </div>
     </div>
     <div id="d-idle">
+      <div class="idle-bg" aria-hidden="true">
+        <div class="idle-bg-layer" id="d-idle-bg-a"></div>
+        <div class="idle-bg-layer" id="d-idle-bg-b"></div>
+        <div class="idle-bg-shade"></div>
+      </div>
       <div class="spotlights">
         <div class="spotlight spotlight-1"></div>
         <div class="spotlight spotlight-2"></div>

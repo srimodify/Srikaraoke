@@ -47,7 +47,9 @@ let myRole = 'guest';
 let reconnectTimer = null;
 let reconnectAttempts = 0;
 let authFailed = false; // true when the PIN/admin token was rejected — don't keep auto-retrying
-let myState = { queue: [], currentId: null, isPlaying: false, tempo: 1, volume: 80, muted: false, playlists: {} };
+let myState = { queue: [], currentId: null, isPlaying: false, tempo: 1, volume: 80, muted: false, playlists: {}, channelMode: 'stereo' };
+const CHANNEL_MODES = ['stereo', 'LL', 'RR'];
+const CHANNEL_MODE_LABEL = { stereo: 'Stereo', LL: 'L+L', RR: 'R+R' };
 let nickname = localStorage.getItem(STORAGE_NAME) || '';
 
 // Warn if not on a secure context — WebRTC needs HTTPS (or localhost) to be reliable.
@@ -219,6 +221,7 @@ function handleHostMessage(msg){
     myState.tempo = msg.tempo || 1;
     myState.volume = msg.volume != null ? msg.volume : 80;
     myState.muted = !!msg.muted;
+    myState.channelMode = CHANNEL_MODES.includes(msg.channelMode) ? msg.channelMode : 'stereo';
     myState.playlists = msg.playlists || {};
     renderNowPlayingStrip();
     renderQueueTab();
@@ -368,10 +371,19 @@ function renderNowPlayingStrip(){
     document.getElementById('np-thumb').src = song.thumbnail;
     document.getElementById('np-title').textContent = song.title;
     document.getElementById('np-indicator').textContent = myState.isPlaying ? '▶' : '⏸';
+    // Channel mode only means something for a file played from the host's own device
+    const modeBtn = document.getElementById('btn-channel-mode');
+    modeBtn.style.display = song.source === 'local' ? '' : 'none';
+    modeBtn.textContent = '🎚️ ' + CHANNEL_MODE_LABEL[myState.channelMode];
   } else {
     strip.style.display = 'none';
   }
 }
+
+document.getElementById('btn-channel-mode').onclick = () => {
+  const next = CHANNEL_MODES[(CHANNEL_MODES.indexOf(myState.channelMode) + 1) % CHANNEL_MODES.length];
+  send({ type: 'CHANNEL_MODE', mode: next });
+};
 
 /* ---------------- Tempo (allowed from remote) ---------------- */
 function renderTempo(){

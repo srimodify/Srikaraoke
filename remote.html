@@ -133,6 +133,12 @@ header h1 span{color:var(--magenta);}
 #np-strip .meta{flex:1;min-width:0;}
 #np-strip .meta .label{font-size:10px;color:var(--gold);}
 #np-strip .meta .title{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#btn-channel-mode{
+  flex-shrink:0;background:var(--panel);border:1px solid var(--gold);color:var(--gold);
+  border-radius:999px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer;
+  font-family:'Sarabun',sans-serif;white-space:nowrap;
+}
+#btn-channel-mode:active{background:var(--gold);color:#1B1533;}
 #np-indicator{
   color:var(--gold);font-size:16px;flex-shrink:0;width:34px;height:34px;
   display:flex;align-items:center;justify-content:center;
@@ -447,9 +453,10 @@ nav#tabbar button:focus-visible{outline:2px solid var(--gold);}
       </ul>
     </div>
 
-    <div class="close-row" style="justify-content:center;gap:12px;">
+    <div class="close-row" style="justify-content:center;gap:12px;flex-wrap:wrap;">
       <button class="icon-btn" id="btn-disclaimer-cancel">ยกเลิก</button>
       <button class="icon-btn info" id="btn-disclaimer-features">คุณสมบัติ</button>
+      <button class="icon-btn info" id="btn-disclaimer-manual" onclick="window.open('manual.html', '_blank', 'noopener')">📖 คู่มือการใช้งาน</button>
       <button class="icon-btn accent" id="btn-disclaimer-enter">เข้าสู่ระบบ</button>
     </div>
   </div>
@@ -502,11 +509,12 @@ nav#tabbar button:focus-visible{outline:2px solid var(--gold);}
       <div id="emoji-bar-list"></div>
     </div>
     <div id="np-strip" style="display:none;">
-      <img id="np-thumb" src="" alt="">
+      <img id="np-thumb" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="">
       <div class="meta">
         <div class="label">กำลังเล่น</div>
         <div class="title" id="np-title">—</div>
       </div>
+      <button id="btn-channel-mode" style="display:none;" title="ช่องเสียง">🎚️ Stereo</button>
       <span id="np-indicator" title="ควบคุมเล่น/หยุดได้ที่จอหลักเท่านั้น">▶</span>
     </div>
     <div id="admin-transport" style="display:none;">

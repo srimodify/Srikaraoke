@@ -434,6 +434,40 @@ main.queue-hidden #queue-panel{display:none;}
   padding-top:var(--header-h,0px);box-sizing:border-box;
   background:radial-gradient(circle at 50% 40%, #241C42 0%, #0F0C1E 70%);
 }
+/* ---------- Custom idle background (slideshow) ---------- */
+.idle-bg{position:absolute;inset:0;z-index:0;display:none;pointer-events:none;}
+#idle-screen.has-custom-bg .idle-bg{display:block;}
+.idle-bg-layer{
+  position:absolute;inset:0;
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+  opacity:0;transition:opacity 1.2s ease;
+}
+.idle-bg-layer.visible{opacity:1;}
+/* A light dark wash over the picture so the logo and the "no songs in queue" text stay readable on any image */
+.idle-bg-shade{position:absolute;inset:0;background:linear-gradient(180deg, rgba(15,12,30,.25) 0%, rgba(15,12,30,.45) 100%);}
+/* With a custom picture showing, drop the disco lights (they'd just fight with the photo) — the logo and text stay. */
+#idle-screen.has-custom-bg .spotlights,
+#idle-screen.has-custom-bg .disco-glare,
+#idle-screen.has-custom-bg .disco-lights,
+#idle-screen.has-custom-bg .led-lights,
+#idle-screen.has-custom-bg .theme-decorations{display:none !important;}
+#idle-screen.has-custom-bg .idle-content .display{text-shadow:0 2px 14px rgba(0,0,0,.9);}
+@media (prefers-reduced-motion: reduce){ .idle-bg-layer{ transition-duration:.01s; } }
+
+/* Settings: thumbnails of the added background pictures */
+.bg-thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+.bg-thumb{
+  position:relative;width:84px;height:56px;border-radius:8px;overflow:hidden;
+  border:1px solid var(--line);background:var(--panel-2);
+}
+.bg-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.bg-thumb button{
+  position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;
+  border:none;background:rgba(0,0,0,.65);color:#fff;font-size:11px;line-height:1;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;padding:0;
+}
+.bg-thumb button:hover{background:var(--magenta);}
+
 .idle-content{
   position:relative;z-index:3;
   display:flex;flex-direction:column;align-items:center;gap:18px;
@@ -1439,9 +1473,10 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
       </ul>
     </div>
 
-    <div class="close-row" style="justify-content:center;gap:12px;">
+    <div class="close-row" style="justify-content:center;gap:12px;flex-wrap:wrap;">
       <button class="icon-btn" id="btn-disclaimer-cancel">ยกเลิก</button>
       <button class="icon-btn info" id="btn-disclaimer-features">คุณสมบัติ</button>
+      <button class="icon-btn info" id="btn-disclaimer-manual" onclick="window.open('manual.html', '_blank', 'noopener')">📖 คู่มือการใช้งาน</button>
       <button class="icon-btn accent" id="btn-disclaimer-enter">เข้าสู่ระบบ</button>
     </div>
   </div>
@@ -1527,6 +1562,7 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
         <button class="icon-btn" id="btn-search"><span>🔎</span><span class="label">ค้นหาเพลง</span></button>
         <button class="icon-btn accent" id="btn-qr"><span>📱</span><span class="label">รีโมทมือถือ</span></button>
         <button class="icon-btn" id="btn-chords" style="display:none;"><span>🎸</span><span class="label">คอร์ด</span></button>
+        <button class="icon-btn" id="btn-channel-mode" style="display:none;" title="ช่องเสียง"><span>🎚️</span><span class="label">Stereo</span></button>
         <button class="icon-btn" id="btn-emoji-toggle" title="ส่งอิโมจิ"><span>😀</span><span class="label">อิโมจิ</span></button>
         <button class="icon-btn" id="btn-settings"><span>⚙️</span><span class="label">ตั้งค่า</span></button>
         <button class="icon-btn" id="btn-fullscreen"><span>⛶</span><span class="label">เต็มจอ</span></button>
@@ -1582,6 +1618,11 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
           </div>
         </div>
         <div id="idle-screen">
+          <div class="idle-bg" id="idle-bg" aria-hidden="true">
+            <div class="idle-bg-layer" id="idle-bg-a"></div>
+            <div class="idle-bg-layer" id="idle-bg-b"></div>
+            <div class="idle-bg-shade"></div>
+          </div>
           <div class="spotlights">
             <div class="spotlight spotlight-1"></div>
             <div class="spotlight spotlight-2"></div>
@@ -1886,6 +1927,41 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
     </div>
 
     <div class="settings-section">
+      <h3>ภาพพื้นหลังตอนคิวว่าง</h3>
+      <p class="hint">แสดงแทนหน้าจอดิสโก้ตอนไม่มีเพลงเล่นอยู่ ถ้าไม่เพิ่มภาพเลยจะใช้หน้าจอเริ่มต้นเหมือนเดิม เพิ่มได้หลายภาพ (สูงสุด 20 ภาพ) ถ้ามีมากกว่า 1 ภาพจะเปลี่ยนภาพวนไปเรื่อยๆ แบบสไลด์โชว์ — ถ้าเปิดใช้งานจอที่ 2 อยู่ ภาพจะถูกส่งไปแสดงที่จอที่ 2 ให้อัตโนมัติด้วย (ใช้เวลาและลำดับเดียวกัน)</p>
+      <button class="icon-btn settings-btn" id="btn-bg-add"><span>🖼️</span> เพิ่มภาพพื้นหลัง</button>
+      <input type="file" id="bg-file-input" accept="image/*" multiple style="display:none;">
+      <p class="hint" id="bg-status" style="margin-top:8px;">ยังไม่ได้เพิ่มภาพ — ใช้หน้าจอเริ่มต้น</p>
+      <div class="bg-thumbs" id="bg-thumbs"></div>
+      <div class="settings-toggle-row" style="margin-top:12px;">
+        <div>
+          <div class="settings-row-title">⏱️ เปลี่ยนภาพทุก</div>
+          <div class="settings-row-desc">ใช้เมื่อมีมากกว่า 1 ภาพ</div>
+        </div>
+        <select class="theme-select" id="bg-interval-select">
+          <option value="5">5 วินาที</option>
+          <option value="10">10 วินาที</option>
+          <option value="15">15 วินาที</option>
+          <option value="30">30 วินาที</option>
+          <option value="60">1 นาที</option>
+          <option value="120">2 นาที</option>
+          <option value="300">5 นาที</option>
+        </select>
+      </div>
+      <div class="settings-toggle-row" style="margin-top:12px;">
+        <div>
+          <div class="settings-row-title">🔀 ลำดับการแสดง</div>
+          <div class="settings-row-desc">เรียงตามที่เพิ่ม หรือสุ่ม</div>
+        </div>
+        <select class="theme-select" id="bg-order-select">
+          <option value="seq">เรียงตามลำดับ</option>
+          <option value="random">สุ่ม</option>
+        </select>
+      </div>
+      <button class="icon-btn" id="btn-bg-clear" style="display:none;margin-top:12px;">ลบภาพทั้งหมด (กลับไปใช้หน้าจอเริ่มต้น)</button>
+    </div>
+
+    <div class="settings-section">
       <h3>ประสิทธิภาพ</h3>
       <div class="settings-toggle-row">
         <div>
@@ -1931,9 +2007,27 @@ body.light-theme .q-item.playing{background:#FFF4DC;}
       <div class="settings-toggle-row" id="audio-output-row" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
         <div>
           <div class="settings-row-title">🔊 เสียงออกที่</div>
-          <div class="settings-row-desc">ปุ่มปรับเสียงเดิม (จอหลัก+รีโมท) จะไปควบคุมจอที่เลือกไว้นี้แทน อีกจอจะถูกปิดเสียงอัตโนมัติกันเสียงซ้อน — <strong>ใช้ได้เฉพาะเพลงจาก YouTube เท่านั้น</strong> เพลง/ไฟล์ในเครื่อง (รวม MP3) เสียงออกที่จอหลักเสมอ เพราะไฟล์ไม่ได้อยู่ที่จอที่ 2</div>
+          <div class="settings-row-desc">ปุ่มปรับเสียงเดิม (จอหลัก+รีโมท) จะไปควบคุมจอที่เลือกไว้นี้แทน อีกจอจะถูกปิดเสียงอัตโนมัติกันเสียงซ้อน — ใช้ได้ทั้งเพลง YouTube และเพลง/ไฟล์ในเครื่อง (ไฟล์ในเครื่องจะส่งเสียงสดจากจอหลักไปจอที่ 2 ผ่านเครือข่าย จึงมีเสียงช้ากว่าภาพที่จอหลักเล็กน้อย)</div>
         </div>
         <button class="icon-btn" id="btn-audio-output-toggle">จอหลัก</button>
+      </div>
+      <div class="settings-toggle-row" id="audio-latency-row" style="display:none;margin-top:14px;">
+        <div>
+          <div class="settings-row-title">⏱️ ชดเชยเสียงจอที่ 2</div>
+          <div class="settings-row-desc">ใช้กับเนื้อเพลง MP3 ไฮไลต์ตอนเสียงออกจอที่ 2 — เสียงที่ส่งไปจอที่ 2 มาช้ากว่าเล็กน้อย ตั้งให้เนื้อเพลงช้าลงตามเพื่อให้ตรงกับเสียงที่ได้ยิน (ปรับจนตรง ถ้าเสียงมาช้ามากเพิ่มค่า)</div>
+        </div>
+        <select class="theme-select" id="audio-latency-select">
+          <option value="0">ไม่ชดเชย</option>
+          <option value="100">100 มิลลิวินาที</option>
+          <option value="150">150 มิลลิวินาที</option>
+          <option value="200">200 มิลลิวินาที</option>
+          <option value="250">250 มิลลิวินาที</option>
+          <option value="300">300 มิลลิวินาที</option>
+          <option value="400">400 มิลลิวินาที</option>
+          <option value="500">500 มิลลิวินาที</option>
+          <option value="700">700 มิลลิวินาที</option>
+          <option value="1000">1 วินาที</option>
+        </select>
       </div>
     </div>
 

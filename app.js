@@ -43,6 +43,7 @@ const state = {
   screen2Enabled: sessionStorage.getItem('sriKaraoke_screen2Enabled') === '1',
   audioOutput: sessionStorage.getItem('sriKaraoke_audioOutput') || 'screen1',
   scoringEnabled: sessionStorage.getItem('sriKaraoke_scoringEnabled') !== '0',
+  channelMode: ['stereo', 'LL', 'RR'].includes(sessionStorage.getItem('sriKaraoke_channelMode')) ? sessionStorage.getItem('sriKaraoke_channelMode') : 'stereo',
   localLibrary: [],
   chords: loadChords()
 };
@@ -50,6 +51,14 @@ const state = {
 let ytPlayer = null;
 let ytReady = false;
 let localPlayer = null; // <video> element used for songs from the device's own file system
+// Web Audio routing for local files (channel mode + sending to Screen 2) — built lazily, see "Local-file audio routing" below
+let localGraph = null;          // { ctx, source, router, toHost, toStream, streamDest } once built
+let localGraphBuilding = null;  // promise while it's being built, so concurrent callers share one attempt
+let localAudioBroken = false;   // true if the player can't be (or has been left un-) routed: stop trying
+let localGraphLastFail = 0;     // timestamp of the last failed attempt, to avoid hammering on every audio update
+const localStreamCalls = new Map(); // Screen 2's peer id -> the live audio MediaConnection we're sending it
+let audioLatencyMs = parseInt(localStorage.getItem('sriKaraoke_audioLatencyMs') || '250', 10);
+if(!(audioLatencyMs >= 0 && audioLatencyMs <= 2000)) audioLatencyMs = 250;
 const localFiles = new Map(); // localFileId -> File object (kept in memory only, this device/session only)
 let peer = null;
 const connections = []; // connected remote controllers
@@ -303,17 +312,6 @@ function loadSongIntoPlayer(song){
       skip('ไฟล์หายไป');
       return;
     }
-    // Local files never leave this device, so Screen 2 has no way to output their audio at all — if
-    // the previous song was on YouTube with output already switched to Screen 2, force it back here
-    // rather than leaving both this device AND Screen 2 silent (Screen 2 has nothing valid to play,
-    // and this device would otherwise also mute itself per the "screen2" setting below).
-    if(state.audioOutput === 'screen2'){
-      state.audioOutput = 'screen1';
-      sessionStorage.setItem('sriKaraoke_audioOutput', 'screen1');
-      const outputBtn = document.getElementById('btn-audio-output-toggle');
-      if(outputBtn) outputBtn.textContent = 'จอหลัก';
-      showToast('🔊 เพลงนี้เป็นไฟล์ในเครื่อง — ย้ายเสียงกลับมาที่จอหลักให้อัตโนมัติ');
-    }
     if(ytWrap) ytWrap.style.display = 'none';
     // mute() first for instant silence — stopVideo() alone can take a brief moment to actually cut
     // the audio, which is exactly the overlap window this is meant to close.
@@ -323,8 +321,7 @@ function loadSongIntoPlayer(song){
       const url = URL.createObjectURL(file);
       localPlayer.src = url;
       localPlayer.playbackRate = state.tempo;
-      localPlayer.volume = state.audioOutput === 'screen2' ? 0 : state.volume / 100;
-      localPlayer.muted = state.audioOutput === 'screen2' ? true : state.muted;
+      prepareLocalElementAudio(); // volume/mute + (if needed) the channel-mode / Screen 2 routing
       localPlayer.play().catch(() => {});
     }
     state.isPlaying = true;
@@ -335,7 +332,7 @@ function loadSongIntoPlayer(song){
       hideMp3NowPlaying();
     }
   } else {
-    console.log('[YT Debug] Loading YouTube video:', song.videoId, '| ytReady:', ytReady, '| ytPlayer exists:', !!ytPlayer);
+    console.debug('[YT Debug] Loading YouTube video:', song.videoId, '| ytReady:', ytReady, '| ytPlayer exists:', !!ytPlayer);
     if(localPlayer){ localPlayer.pause(); localPlayer.removeAttribute('src'); localPlayer.load(); localPlayer.style.display = 'none'; }
     if(ytWrap) ytWrap.style.display = '';
     if(ytReady && ytPlayer){
@@ -354,7 +351,6 @@ function loadSongIntoPlayer(song){
       waitForYouTubePlayerThenRetry(song);
     }
     hideMp3NowPlaying();
-    console.log('[YT Debug] mp3-now-playing display after hide:', document.getElementById('mp3-now-playing').style.display, '| #player display:', getComputedStyle(ytWrap).display, '| #idle-screen display:', getComputedStyle(document.getElementById('idle-screen')).display);
   }
   applyAudioOutput(); // final step: makes sure the "muted while loading" state actually takes effect,
                        // overriding whatever volume/mute the branch above just set
@@ -371,7 +367,7 @@ function waitForYouTubePlayerThenRetry(song){
     if(myToken !== ytRetryToken) return; // a different song was requested meanwhile — stop retrying this one
     if(currentSong()?.id !== song.id) return; // the operator moved on — nothing left to retry into
     if(ytReady && ytPlayer){
-      console.log('[YT Debug] YouTube player became ready — loading the pending video now:', song.videoId);
+      console.debug('[YT Debug] YouTube player became ready — loading the pending video now:', song.videoId);
       try{
         ytPlayer.loadVideoById(song.videoId);
         ytPlayer.setPlaybackRate(state.tempo);
@@ -580,6 +576,9 @@ function renderNowPlaying(){
   renderNextUpBar();
   renderChordBar();
   syncIdleJingle();
+  syncIdleSlideshow();
+  updateChannelModeButton();
+  syncLocalAudioToScreen2();
 }
 
 // "Now playing" is shown as a continuously scrolling ticker (right-to-left) across the bottom of the
@@ -1059,21 +1058,279 @@ function toggleMute(){
 // Routes the shared volume/tempo controls to whichever screen is currently the audio source.
 // When Screen 2 is the source, the host's own player is force-muted and every connection (Screen 2,
 // phone remotes) gets an AUDIO_OUTPUT message — phone remotes have no player and simply ignore it.
-function applyAudioOutput(){
+/* ---------------- Local-file audio routing ----------------
+   Two features need the local player's sound to pass through the Web Audio API instead of going straight to
+   the speakers: the channel mode (Stereo / L+L / R+R — for karaoke discs that put music on one channel and
+   music+vocals on the other) and sending a local file's sound to Screen 2.
+   Until one of them is actually needed (Stereo + sound on this device = the original, untouched path), the
+   player is NOT touched at all — once a <video> element is attached to the Web Audio API it can't be
+   detached again, so this is only done on demand, and only after the browser has confirmed audio is allowed
+   to run (otherwise attaching it would leave the file silent). */
+const CHANNEL_MODES = ['stereo', 'LL', 'RR'];
+const CHANNEL_MODE_LABEL = { stereo: 'Stereo', LL: 'L+L', RR: 'R+R' };
+
+// Pure (takes the audio source in, returns the routing) so it can be tested against a real Web Audio engine.
+//   Stereo: left -> left,  right -> right
+//   L+L   : left -> both speakers      R+R: right -> both speakers
+// Every mode still outputs to BOTH speakers — only which channel feeds them changes.
+function buildChannelRouter(ctx, source){
+  // Force exactly 2 channels first: a mono file becomes L=R (so R+R isn't silent), 5.1 gets folded down.
+  const pre = ctx.createGain();
+  pre.channelCount = 2; pre.channelCountMode = 'explicit'; pre.channelInterpretation = 'speakers';
+  const splitter = ctx.createChannelSplitter(2);
+  const merger = ctx.createChannelMerger(2);
+  const g = { LtoL: ctx.createGain(), LtoR: ctx.createGain(), RtoL: ctx.createGain(), RtoR: ctx.createGain() };
+  const output = ctx.createGain();
+  output.channelCount = 2; output.channelCountMode = 'explicit'; output.channelInterpretation = 'speakers';
+  source.connect(pre);
+  pre.connect(splitter);
+  splitter.connect(g.LtoL, 0); splitter.connect(g.LtoR, 0);
+  splitter.connect(g.RtoL, 1); splitter.connect(g.RtoR, 1);
+  g.LtoL.connect(merger, 0, 0); g.RtoL.connect(merger, 0, 0);
+  g.LtoR.connect(merger, 0, 1); g.RtoR.connect(merger, 0, 1);
+  merger.connect(output);
+  function setMode(mode, immediate){
+    const m = { stereo: [1, 0, 0, 1], LL: [1, 1, 0, 0], RR: [0, 0, 1, 1] }[mode] || [1, 0, 0, 1];
+    [g.LtoL, g.LtoR, g.RtoL, g.RtoR].forEach((node, i) => {
+      if(immediate) node.gain.value = m[i];
+      else node.gain.setTargetAtTime(m[i], ctx.currentTime, 0.01); // short ramp so switching doesn't click
+    });
+  }
+  return { input: pre, output, gains: g, setMode };
+}
+
+// WebRTC sends Opus as mono unless both sides' SDP say otherwise — add stereo (and a music-grade bitrate)
+// to the Opus line so Stereo mode actually arrives in stereo at Screen 2.
+function opusStereoSdp(sdp){
+  const m = /a=rtpmap:(\d+) opus\/48000\/2/i.exec(sdp);
+  if(!m) return sdp;
+  const pt = m[1];
+  const extra = 'stereo=1;sprop-stereo=1;maxaveragebitrate=128000';
+  const fmtp = new RegExp('(a=fmtp:' + pt + ' )([^\\r\\n]*)');
+  if(fmtp.test(sdp)){
+    return sdp.replace(fmtp, (all, head, params) => /(^|;)stereo=/.test(params) ? all : head + params + ';' + extra);
+  }
+  return sdp.replace(m[0], m[0] + '\r\na=fmtp:' + pt + ' ' + extra);
+}
+
+function ensureLocalAudioGraph(){
+  if(localGraph) return Promise.resolve(localGraph);
+  if(localGraphBuilding) return localGraphBuilding;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC || !localPlayer || localAudioBroken) return Promise.resolve(null);
+  localGraphBuilding = (async () => {
+    let ctx = null;
+    try{
+      ctx = new AC();
+      // A browser that isn't allowing audio yet doesn't reject resume() — it leaves the promise pending until
+      // someone taps the page — so don't wait forever: give it a moment, then treat it as blocked.
+      try{ await Promise.race([ctx.resume(), new Promise(r => setTimeout(r, 1500))]); }catch(e){}
+      // Not allowed to run (no user interaction / blocked)? Don't attach: that would silence the file.
+      if(ctx.state !== 'running') throw new Error('AudioContext is ' + ctx.state);
+    }catch(e){
+      console.warn('[Audio] Web Audio not available right now — leaving the player untouched.', e);
+      try{ if(ctx) ctx.close(); }catch(_){}
+      localGraphLastFail = Date.now();
+      return null;
+    }
+    let source;
+    try{
+      source = ctx.createMediaElementSource(localPlayer);
+    }catch(e){
+      console.warn('[Audio] Could not attach the local player to Web Audio.', e);
+      try{ ctx.close(); }catch(_){}
+      localAudioBroken = true;
+      localGraphLastFail = Date.now();
+      return null;
+    }
+    // From here on the player's sound ONLY comes out through this graph.
+    try{
+      const router = buildChannelRouter(ctx, source);
+      router.setMode(state.channelMode, true);
+      const toHost = ctx.createGain();
+      router.output.connect(toHost);
+      toHost.connect(ctx.destination);
+      let toStream = null, streamDest = null;
+      if(ctx.createMediaStreamDestination){
+        streamDest = ctx.createMediaStreamDestination();
+        toStream = ctx.createGain();
+        toStream.gain.value = 0;
+        router.output.connect(toStream);
+        toStream.connect(streamDest);
+      }
+      localGraph = { ctx, source, router, toHost, toStream, streamDest };
+      return localGraph;
+    }catch(e){
+      console.error('[Audio] Building the routing failed — connecting the player straight to the speakers.', e);
+      try{ source.disconnect(); }catch(_){}
+      try{ source.connect(ctx.destination); }catch(_){}
+      localAudioBroken = true;
+      localGraphLastFail = Date.now();
+      return null;
+    }
+  })().finally(() => { localGraphBuilding = null; });
+  return localGraphBuilding;
+}
+
+// Sets how loud the local player is, in whichever mode it's in (graph or original direct path).
+// `silenceHost` = this device's own speakers should be silent (sound is going to Screen 2, or still loading).
+function applyLocalPlayerLevels(silenceHost){
+  if(!localPlayer) return;
+  if(localGraph){
+    // Volume/mute are applied by the graph's gain nodes, so the element itself stays wide open.
+    localPlayer.volume = 1;
+    localPlayer.muted = false;
+    // e.g. a backgrounded tab on Android can have its audio engine paused — wake it, otherwise nothing is heard
+    if(localGraph.ctx.state === 'suspended'){ try{ localGraph.ctx.resume().catch(() => {}); }catch(e){} }
+    const t = localGraph.ctx.currentTime;
+    localGraph.toHost.gain.setTargetAtTime(silenceHost ? 0 : (state.muted ? 0 : state.volume / 100), t, 0.01);
+    if(localGraph.toStream) localGraph.toStream.gain.setTargetAtTime(state.audioOutput === 'screen2' ? 1 : 0, t, 0.01);
+  } else if(silenceHost){
+    localPlayer.muted = true;
+    localPlayer.volume = 0;
+  } else {
+    localPlayer.volume = state.volume / 100;
+    localPlayer.muted = state.muted;
+  }
+}
+
+function localRoutingWanted(){
+  const song = currentSong();
+  return !!song && song.source === 'local' && (state.channelMode !== 'stereo' || state.audioOutput === 'screen2');
+}
+
+// Backs out of everything that depended on the routing, so the room is never left silent or mislabelled:
+// the channel mode returns to Stereo and, if sound was set to Screen 2, it returns to this device.
+function abandonLocalRouting(onlyScreen2Output){
+  if(!onlyScreen2Output && state.channelMode !== 'stereo'){
+    state.channelMode = 'stereo';
+    sessionStorage.setItem('sriKaraoke_channelMode', 'stereo');
+    showToast('⚠️ เปิดโหมดช่องเสียงไม่ได้ (เบราว์เซอร์ไม่อนุญาตระบบเสียงขั้นสูง ลองกดที่หน้าจอ 1 ครั้งแล้วลองใหม่) — กลับเป็น Stereo', true);
+  }
+  if(state.audioOutput === 'screen2' && currentSong()?.source === 'local'){
+    state.audioOutput = 'screen1';
+    sessionStorage.setItem('sriKaraoke_audioOutput', 'screen1');
+    const outputBtn = document.getElementById('btn-audio-output-toggle');
+    if(outputBtn) outputBtn.textContent = 'จอหลัก';
+    showToast('⚠️ ส่งเสียงไฟล์ในเครื่องไปจอที่ 2 ไม่ได้ — ย้ายเสียงกลับมาที่จอหลักให้อัตโนมัติ', true);
+  }
+  applyAudioOutput();
+  updateChannelModeButton();
+  broadcastState();
+}
+
+// Builds the routing if (and only if) the current song needs it; re-applies levels once it's ready.
+// `userInitiated` skips the short cool-down after a failed attempt: the cool-down only exists so that
+// automatic refreshes (e.g. every volume change) don't keep retrying, never to ignore what the operator just asked for.
+function maybeBuildLocalGraph(userInitiated){
+  // The routing exists but this browser has no way to hand its sound to Screen 2 (no MediaStream destination):
+  // keep the channel mode (it works fine) and only take the output back to this device.
+  if(localGraph && !localGraph.streamDest && state.audioOutput === 'screen2' && currentSong()?.source === 'local'){
+    abandonLocalRouting(true);
+    return;
+  }
+  if(localGraph || !localPlayer || !localRoutingWanted()) return;
+  if(localAudioBroken){ abandonLocalRouting(); return; } // can never work in this page: say so instead of staying silent
+  if(!userInitiated && Date.now() - localGraphLastFail < 3000) return;
+  ensureLocalAudioGraph().then(g => {
+    if(g) applyAudioOutput();
+    else abandonLocalRouting();
+  });
+}
+
+// Called as a local song is about to start. Keeps the player silent until the routing it needs exists, so
+// nothing ever leaks out un-routed (e.g. in R+R, or to this speaker when it should only go to Screen 2).
+function prepareLocalElementAudio(){
+  const needsRouting = state.channelMode !== 'stereo' || state.audioOutput === 'screen2';
+  if(localGraph || !needsRouting){
+    applyLocalPlayerLevels(state.audioOutput === 'screen2');
+    return;
+  }
+  // Routing is needed but doesn't exist yet: hold the element silent meanwhile, then either build it or — if that
+  // can never work here — back out and restore normal sound (never leave the file silent).
+  localPlayer.muted = true;
+  localPlayer.volume = 0;
+  // currentSong() is already the new song here (state.currentId is set before loadSongIntoPlayer runs)
+  maybeBuildLocalGraph(true);
+}
+
+function setChannelMode(mode){
+  if(!CHANNEL_MODES.includes(mode)) return;
+  if(mode !== 'stereo' && !localGraph && localAudioBroken){
+    showToast('⚠️ เบราว์เซอร์นี้ใช้โหมดช่องเสียงไม่ได้ (ตัวเล่นเชื่อมระบบเสียงขั้นสูงไม่สำเร็จ) — ลองรีเฟรชหน้านี้', true);
+    return;
+  }
+  state.channelMode = mode;
+  sessionStorage.setItem('sriKaraoke_channelMode', mode);
+  if(localGraph){
+    localGraph.router.setMode(mode);
+    try{ if(localGraph.ctx.state === 'suspended') localGraph.ctx.resume(); }catch(e){}
+  } else if(mode !== 'stereo'){
+    maybeBuildLocalGraph(true); // first time a non-Stereo mode is wanted for the current local song
+  }
+  updateChannelModeButton();
+  broadcastState();
+  showToast('🎚️ ช่องเสียง: ' + CHANNEL_MODE_LABEL[mode]);
+}
+
+function updateChannelModeButton(){
+  const btn = document.getElementById('btn-channel-mode');
+  if(!btn) return;
+  const song = currentSong();
+  btn.style.display = (song && song.source === 'local') ? '' : 'none';
+  btn.querySelector('.label').textContent = CHANNEL_MODE_LABEL[state.channelMode];
+  btn.title = 'ช่องเสียง: ' + CHANNEL_MODE_LABEL[state.channelMode] + ' (กดเพื่อสลับ Stereo → L+L → R+R)';
+}
+
+// Sends the local player's sound to every connected Screen 2 while sound is routed there for a local song,
+// and hangs up as soon as that stops being true. Idempotent — safe to call from anywhere, any number of times.
+function syncLocalAudioToScreen2(){
+  const want = state.audioOutput === 'screen2' && !!localGraph && !!localGraph.streamDest && currentSong()?.source === 'local';
+  connections.forEach(c => {
+    if(!c._isScreen2) return;
+    const existing = localStreamCalls.get(c.peer);
+    if(want && c.open && !existing && peer && !peer.destroyed){
+      try{
+        const call = peer.call(c.peer, localGraph.streamDest.stream, { sdpTransform: opusStereoSdp });
+        localStreamCalls.set(c.peer, call);
+        call.on('close', () => { if(localStreamCalls.get(c.peer) === call) localStreamCalls.delete(c.peer); });
+        call.on('error', () => { if(localStreamCalls.get(c.peer) === call) localStreamCalls.delete(c.peer); });
+      }catch(e){
+        // Sound is set to go to Screen 2 and this device is silent, so a feed that can't start must not be left like that
+        console.warn('[Audio] Could not start sending sound to Screen 2', e);
+        abandonLocalRouting(true);
+        return;
+      }
+    } else if(!want && existing){
+      try{ existing.close(); }catch(e){}
+      localStreamCalls.delete(c.peer);
+    }
+  });
+  // forget calls whose Screen 2 has gone away
+  for(const [peerId, call] of [...localStreamCalls]){
+    if(!connections.some(c => c.peer === peerId && c.open)){
+      try{ call.close(); }catch(e){}
+      localStreamCalls.delete(peerId);
+    }
+  }
+}
+
+function applyAudioOutput(userInitiated){
   const forceMuteForLoading = isLoadingSong && state.audioOutput === 'screen1';
-  console.log('[Audio Debug] applyAudioOutput called. audioOutput:', state.audioOutput, '| isLoadingSong:', isLoadingSong, '| currentSong source:', currentSong()?.source, '| connections:', connections.length);
-  if(state.audioOutput === 'screen2' || forceMuteForLoading){
+  const silenceHost = state.audioOutput === 'screen2' || forceMuteForLoading;
+  if(silenceHost){
     if(ytReady && ytPlayer){ try{ ytPlayer.mute(); ytPlayer.setVolume(0); }catch(e){} }
-    if(localPlayer){ localPlayer.muted = true; localPlayer.volume = 0; }
   } else {
     if(ytReady && ytPlayer){
       try{ ytPlayer.setVolume(state.volume); state.muted ? ytPlayer.mute() : ytPlayer.unMute(); }catch(e){}
     }
-    if(localPlayer){ localPlayer.volume = state.volume / 100; localPlayer.muted = state.muted; }
   }
+  applyLocalPlayerLevels(silenceHost);
   connections.forEach(c => {
-    if(c.open) c.send({ type: 'AUDIO_OUTPUT', output: state.audioOutput, volume: state.volume, muted: state.muted });
+    if(c.open) c.send({ type: 'AUDIO_OUTPUT', output: state.audioOutput, volume: state.volume, muted: state.muted, latencyMs: audioLatencyMs });
   });
+  maybeBuildLocalGraph(userInitiated);
+  syncLocalAudioToScreen2();
   syncIdleJingle();
 }
 
@@ -1122,9 +1379,9 @@ function onYouTubeIframeAPIReady(){
     width: '100%', height: '100%',
     playerVars: { autoplay: 0, playsinline: 1, controls: 1, rel: 0 },
     events: {
-      onReady: () => { ytReady = true; console.log('[YT Debug] YouTube player onReady fired.'); applyAudioOutput(); },
+      onReady: () => { ytReady = true; console.debug('[YT Debug] YouTube player onReady fired.'); applyAudioOutput(); },
       onStateChange: (e) => {
-        console.log('[YT Debug] onStateChange fired, state:', e.data, '(PLAYING=', YT.PlayerState.PLAYING, ')');
+        console.debug('[YT Debug] onStateChange fired, state:', e.data, '(PLAYING=', YT.PlayerState.PLAYING, ')');
         if(e.data === YT.PlayerState.ENDED){
           const finishedSong = currentSong();
           if(finishedSong) recordAndShowScore(finishedSong);
@@ -1310,6 +1567,7 @@ function initPeer(){
             joined = true;
             conn._nickname = msg.nickname || '';
             conn._role = role;
+            conn._isScreen2 = msg.kind === 'screen2'; // only Screen 2 gets the idle-background pictures
             connections.push(conn);
             conn.send({ type: 'JOIN_OK', role });
             updateConnStatus();
@@ -1317,6 +1575,7 @@ function initPeer(){
             conn.send({ type: 'LOCAL_LIBRARY', localLibrary: state.localLibrary });
             conn.send({ type: 'CHORDS_LIBRARY', chords: state.chords });
             conn.send({ type: 'SOUND_EFFECTS', effects: soundEffects });
+            if(conn._isScreen2){ bgSendSync(conn); syncLocalAudioToScreen2(); }
             if(voteTally.size > 0){
               const tally = {};
               voteTally.forEach((count, id) => { if(count > 0) tally[id] = count; });
@@ -1345,6 +1604,7 @@ function initPeer(){
       const i = connections.indexOf(conn);
       if(i > -1) connections.splice(i, 1);
       updateConnStatus();
+      if(conn._isScreen2) syncLocalAudioToScreen2();
       // Don't let a vote outlive the connection that cast it — free it up for the tally.
       const votedFor = voteByConn.get(conn.peer);
       if(votedFor){
@@ -1411,7 +1671,7 @@ function renderConnectedDevices(){
 
 // Guests can queue/remove songs and adjust tempo. Admins get full remote control,
 // equivalent to standing at the main screen — matches what a scanned Admin QR grants.
-const GUEST_ALLOWED = new Set(['ADD_SONG', 'REMOVE_SONG', 'TEMPO_UP', 'TEMPO_DOWN', 'VOLUME_UP', 'VOLUME_DOWN', 'TOGGLE_MUTE', 'PLAY_SOUND_EFFECT', 'EMOJI_REACTION', 'VOTE_NEXT_SONG']);
+const GUEST_ALLOWED = new Set(['ADD_SONG', 'REMOVE_SONG', 'TEMPO_UP', 'TEMPO_DOWN', 'VOLUME_UP', 'VOLUME_DOWN', 'TOGGLE_MUTE', 'PLAY_SOUND_EFFECT', 'EMOJI_REACTION', 'VOTE_NEXT_SONG', 'BG_NEED', 'CHANNEL_MODE']);
 const ADMIN_ALLOWED = new Set([
   ...GUEST_ALLOWED,
   'SKIP', 'PREV', 'TOGGLE_PLAY', 'INSERT_NEXT', 'MOVE_UP', 'MOVE_DOWN', 'REORDER_BEFORE', 'LOAD_PLAYLIST', 'PLAY_SONG'
@@ -1452,6 +1712,8 @@ function handleRemoteMessage(msg, conn){
       connections.forEach(c => { if(c.open) c.send({ type: 'EMOJI_REACTION', emoji: msg.emoji }); });
       break;
     case 'VOTE_NEXT_SONG': handleVoteNextSong(conn, msg.songId); break;
+    case 'BG_NEED': bgHandleNeed(conn, msg.keys); break;
+    case 'CHANNEL_MODE': setChannelMode(msg.mode); break;
   }
 }
 
@@ -1513,6 +1775,7 @@ function sendState(conn){
     tempo: state.tempo,
     volume: state.volume,
     muted: state.muted,
+    channelMode: state.channelMode,
     playlists: state.playlists,
     localLibrary: state.localLibrary
   });
@@ -1967,17 +2230,17 @@ function parseLyricXml(xmlString){
     const perr = doc.querySelector('parsererror');
     if(perr){
       console.warn('[MP3 Lyrics] XML failed to parse:', perr.textContent?.slice(0, 300));
-      console.log('[MP3 Lyrics] Raw XML that failed (first 600 chars):', JSON.stringify(xmlString.slice(0, 600)));
+      console.debug('[MP3 Lyrics] Raw XML that failed (first 600 chars):', JSON.stringify(xmlString.slice(0, 600)));
       return null;
     }
-    console.log('[MP3 Lyrics] XML root element:', doc.documentElement?.nodeName);
+    console.debug('[MP3 Lyrics] XML root element:', doc.documentElement?.nodeName);
     const info = doc.querySelector('INFO');
     const title = info?.querySelector('TITLE')?.textContent?.trim() || '';
     const artist = info?.querySelector('ARTIST')?.textContent?.trim() || '';
     const lineEls = doc.querySelectorAll('LYRIC > LINE');
-    console.log('[MP3 Lyrics] LYRIC > LINE elements found:', lineEls.length);
+    console.debug('[MP3 Lyrics] LYRIC > LINE elements found:', lineEls.length);
     if(lineEls.length === 0){
-      console.log('[MP3 Lyrics] No LINE elements matched — raw XML for inspection (first 900 chars):', JSON.stringify(xmlString.slice(0, 900)));
+      console.debug('[MP3 Lyrics] No LINE elements matched — raw XML for inspection (first 900 chars):', JSON.stringify(xmlString.slice(0, 900)));
     }
     const lines = [];
     lineEls.forEach(lineEl => {
@@ -1997,11 +2260,11 @@ function parseLyricXml(xmlString){
 }
 async function extractMp3Lyrics(file){
   try{
-    console.log('[MP3 Lyrics] Reading file:', file.name, file.size, 'bytes');
+    console.debug('[MP3 Lyrics] Reading file:', file.name, file.size, 'bytes');
     const buf = await file.arrayBuffer();
     const view = new DataView(buf);
     if(buf.byteLength < 10 || view.getUint8(0) !== 0x49 || view.getUint8(1) !== 0x44 || view.getUint8(2) !== 0x33){
-      console.log('[MP3 Lyrics] No ID3v2 tag found at the start of this file — nothing to extract.');
+      console.debug('[MP3 Lyrics] No ID3v2 tag found at the start of this file — nothing to extract.');
       return null;
     }
     const majorVersion = view.getUint8(3);
@@ -2075,14 +2338,14 @@ async function extractMp3Lyrics(file){
     let asBytes = '';
     for(let i = 0; i < scanRegion.length; i++) asBytes += String.fromCharCode(scanRegion[i]);
     const sigIndex = asBytes.indexOf('LyrHdr1');
-    console.log('[MP3 Lyrics] "LyrHdr1" signature found at byte offset:', sigIndex, '| APIC (cover) frame found:', !!coverBytes);
+    console.debug('[MP3 Lyrics] "LyrHdr1" signature found at byte offset:', sigIndex, '| APIC (cover) frame found:', !!coverBytes);
     let parsed = null;
     if(sigIndex !== -1){
       let i = sigIndex + 7;
       const isBase64Char = (c) => (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '+' || c === '/' || c === '=';
       while(i < asBytes.length && isBase64Char(asBytes[i])) i++;
       const b64 = asBytes.slice(sigIndex + 7, i);
-      console.log('[MP3 Lyrics] Extracted base64 payload length:', b64.length);
+      console.debug('[MP3 Lyrics] Extracted base64 payload length:', b64.length);
       {
         try{
           const binStr = atob(b64);
@@ -2092,24 +2355,24 @@ async function extractMp3Lyrics(file){
             console.warn('[MP3 Lyrics] This browser does not support DecompressionStream — cannot read embedded lyrics. Showing background+title only.');
           } else {
             const inflated = await inflateZlib(compressed);
-            console.log('[MP3 Lyrics] Decompressed', inflated.length, 'bytes of XML lyric data.');
+            console.debug('[MP3 Lyrics] Decompressed', inflated.length, 'bytes of XML lyric data.');
             const xmlText = new TextDecoder('windows-874').decode(inflated);
             parsed = parseLyricXml(xmlText);
-            console.log('[MP3 Lyrics] Parsed lyric lines:', parsed ? parsed.lines.length : 'PARSING FAILED (see next warning if any)');
+            console.debug('[MP3 Lyrics] Parsed lyric lines:', parsed ? parsed.lines.length : 'PARSING FAILED (see next warning if any)');
           }
         }catch(innerErr){
           console.warn('[MP3 Lyrics] Failed to decode/decompress/parse the embedded lyric data:', innerErr);
         }
       }
     } else {
-      console.log('[MP3 Lyrics] No "LyrHdr1" signature found anywhere in this file\'s ID3 tag — not this karaoke format, or a different one.');
+      console.debug('[MP3 Lyrics] No "LyrHdr1" signature found anywhere in this file\'s ID3 tag — not this karaoke format, or a different one.');
     }
     let coverDataUrl = null;
     if(coverBytes && coverBytes.length > 0){
       coverDataUrl = `data:${coverMime || 'image/jpeg'};base64,${bytesToBase64(coverBytes)}`;
     }
     if(!parsed && !coverDataUrl){
-      console.log('[MP3 Lyrics] No lyrics and no cover art found for this file — showing background+title only.');
+      console.debug('[MP3 Lyrics] No lyrics and no cover art found for this file — showing background+title only.');
       return null;
     }
     return { lines: parsed?.lines || null, title: parsed?.title || '', artist: parsed?.artist || '', coverDataUrl };
@@ -2178,10 +2441,10 @@ function loadMp3LyricsForSong(song){
   document.getElementById('mp3-code').textContent = song.title;
   document.getElementById('mp3-title').textContent = '';
   document.getElementById('mp3-artist').textContent = '';
-  console.log('[MP3 Lyrics] Loading lyrics for:', song.title, '| localFileId:', song.localFileId, '| file in memory:', localFiles.has(song.localFileId));
+  console.debug('[MP3 Lyrics] Loading lyrics for:', song.title, '| localFileId:', song.localFileId, '| file in memory:', localFiles.has(song.localFileId));
   getMp3Lyrics(song).then(result => {
-    console.log('[MP3 Lyrics] Result for', song.title, ':', result ? { hasLines: !!result.lines, lineCount: result.lines?.length, hasCover: !!result.coverDataUrl, decodedTitle: result.title, artist: result.artist } : 'null (no lyrics/cover found)');
-    if(myToken !== mp3LyricsLoadToken) { console.log('[MP3 Lyrics] Discarding result — a different song loaded meanwhile.'); return; }
+    console.debug('[MP3 Lyrics] Result for', song.title, ':', result ? { hasLines: !!result.lines, lineCount: result.lines?.length, hasCover: !!result.coverDataUrl, decodedTitle: result.title, artist: result.artist } : 'null (no lyrics/cover found)');
+    if(myToken !== mp3LyricsLoadToken) { console.debug('[MP3 Lyrics] Discarding result — a different song loaded meanwhile.'); return; }
     currentMp3Lyrics = result;
     if(result && result.title){
       document.getElementById('mp3-title').textContent = result.title;
@@ -2239,7 +2502,8 @@ function renderMp3Lyrics(){
   if(document.getElementById('mp3-now-playing').style.display === 'none') return;
   if(!currentMp3Lyrics || !currentMp3Lyrics.lines) return;
   const { currentTime } = getPlaybackTimes();
-  const curMs = currentTime * 1000;
+  // Sound routed to Screen 2 arrives a little late, so hold the highlight back by the same amount
+  const curMs = currentTime * 1000 - (state.audioOutput === 'screen2' ? audioLatencyMs : 0);
   const lines = currentMp3Lyrics.lines;
   let idx = -1;
   for(let i = 0; i < lines.length; i++){
@@ -2330,7 +2594,9 @@ if(localPlayer){
 }
 
 function scanLocalFolder(fileList){
-  const audioExts = /\.(mp3|mp4|m4a|wav|ogg|oga|webm|mov|avi|flac|aac|wma)$/i;
+  // Which of these a given browser can actually decode varies (mpg/mpeg/dat/wmv/avi/mkv often can't be played by Chrome/Edge);
+  // a file it can't open is reported and skipped at play time rather than hidden here.
+  const audioExts = /\.(mp3|mp4|m4a|m4v|mkv|mpg|mpeg|dat|wmv|wav|ogg|oga|webm|mov|avi|flac|aac|wma)$/i;
   state.localLibrary = [];
   localFiles.clear();
   mp3LyricsCache.clear(); // re-scanning means reading fresh from disk — don't serve stale cached lyrics/cover art from before
@@ -2515,6 +2781,7 @@ document.getElementById('btn-screen2-toggle').onclick = () => {
   btn.textContent = state.screen2Enabled ? 'เปิด' : 'ปิด';
   btn.classList.toggle('accent', state.screen2Enabled);
   document.getElementById('audio-output-row').style.display = state.screen2Enabled ? 'flex' : 'none';
+  document.getElementById('audio-latency-row').style.display = state.screen2Enabled ? 'flex' : 'none';
   if(!state.screen2Enabled && state.audioOutput === 'screen2'){
     // Screen 2 just got turned off — bring audio back to the main screen automatically.
     state.audioOutput = 'screen1';
@@ -2531,21 +2798,30 @@ document.getElementById('btn-screen2-toggle').onclick = () => {
 };
 document.getElementById('btn-audio-output-toggle').onclick = () => {
   const wantsScreen2 = state.audioOutput === 'screen1';
-  const nowPlayingSong = currentSong();
-  if(wantsScreen2 && nowPlayingSong && nowPlayingSong.source === 'local'){
-    // Local files (video or MP3) only ever exist on this device's own file system — there is no way
-    // for Screen 2 to play their audio at all, since the file itself never leaves the host. Switching
-    // output there anyway used to leave Screen 2 in a broken, silent, glitchy state with nothing valid
-    // to actually play.
-    showToast('⚠️ เพลงนี้เป็นไฟล์ในเครื่อง เสียงออกได้ที่จอหลักเท่านั้น', true);
-    return;
-  }
   state.audioOutput = wantsScreen2 ? 'screen2' : 'screen1';
   sessionStorage.setItem('sriKaraoke_audioOutput', state.audioOutput);
   document.getElementById('btn-audio-output-toggle').textContent = state.audioOutput === 'screen2' ? 'จอที่ 2' : 'จอหลัก';
-  applyAudioOutput();
+  applyAudioOutput(true);
   showToast(state.audioOutput === 'screen2' ? '🔊 เสียงย้ายไปออกที่จอที่ 2 แล้ว' : '🔊 เสียงย้ายกลับมาที่จอหลักแล้ว');
 };
+document.getElementById('btn-channel-mode').onclick = () => {
+  setChannelMode(CHANNEL_MODES[(CHANNEL_MODES.indexOf(state.channelMode) + 1) % CHANNEL_MODES.length]);
+};
+{
+  const latencySel = document.getElementById('audio-latency-select');
+  latencySel.value = String(audioLatencyMs);
+  if(latencySel.value !== String(audioLatencyMs)){ // a stored value that isn't one of the offered steps
+    const opt = document.createElement('option');
+    opt.value = String(audioLatencyMs); opt.textContent = audioLatencyMs + ' มิลลิวินาที';
+    latencySel.appendChild(opt);
+    latencySel.value = String(audioLatencyMs);
+  }
+  latencySel.addEventListener('change', (e) => {
+    audioLatencyMs = parseInt(e.target.value, 10) || 0;
+    localStorage.setItem('sriKaraoke_audioLatencyMs', String(audioLatencyMs));
+    applyAudioOutput(); // pushes the new value to Screen 2 as well
+  });
+}
 document.getElementById('btn-pick-local-folder').onclick = () => document.getElementById('local-folder-input').click();
 document.getElementById('local-folder-input').addEventListener('change', (e) => {
   if(e.target.files && e.target.files.length) scanLocalFolder(e.target.files);
@@ -2691,6 +2967,325 @@ document.getElementById('theme-select').addEventListener('change', (e) => {
 applyTheme();
 applyPowerSaving();
 
+/* ---------------- Idle-screen custom background (picture slideshow) ----------------
+   Shown in place of the disco screen whenever nothing is playing (queue empty / stopped). Pictures are
+   resized down and kept in IndexedDB — unlike the local music folder, the browser lets us keep these
+   across refreshes, so they only need to be added once. If IndexedDB isn't usable (e.g. some private
+   browsing modes), pictures still work for the current session but are lost on refresh. */
+const BG_DB_NAME = 'sriKaraoke_bg';
+const BG_STORE = 'images';
+const BG_MAX_IMAGES = 20;
+const BG_MAX_DIM = 1920; // longest side after resize — plenty for a TV, keeps memory sane
+const BG_INTERVALS = [5, 10, 15, 30, 60, 120, 300];
+let bgImages = [];          // [{ id, blob, url, name }]  — url is an object URL made from the stored blob
+let bgMemoryOnly = false;   // true once we've found IndexedDB can't be used
+let bgMemId = 0;            // negative ids for in-memory-only pictures (IndexedDB ids are always positive)
+let bgIndex = -1;           // which picture is on screen right now
+let bgTimer = null;
+let bgShowingA = true;      // which of the two crossfade layers is the visible one
+let bgIntervalSec = parseInt(localStorage.getItem('sriKaraoke_bgInterval') || '10', 10);
+if(!BG_INTERVALS.includes(bgIntervalSec)) bgIntervalSec = 10;
+let bgOrder = localStorage.getItem('sriKaraoke_bgOrder') === 'random' ? 'random' : 'seq';
+
+function bgOpenDb(){
+  return new Promise((resolve, reject) => {
+    if(!window.indexedDB){ reject(new Error('IndexedDB not available')); return; }
+    const req = indexedDB.open(BG_DB_NAME, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(BG_STORE, { keyPath: 'id', autoIncrement: true }); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error('IndexedDB blocked'));
+  });
+}
+// Runs one request against the store and resolves with its result once the transaction has really committed.
+function bgTx(mode, makeRequest){
+  return bgOpenDb().then(db => new Promise((resolve, reject) => {
+    let result;
+    const tx = db.transaction(BG_STORE, mode);
+    const req = makeRequest(tx.objectStore(BG_STORE));
+    req.onsuccess = () => { result = req.result; };
+    tx.oncomplete = () => { db.close(); resolve(result); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+    tx.onabort = () => { db.close(); reject(tx.error || new Error('transaction aborted')); };
+  }));
+}
+
+function bgResizeToBlob(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if(!w || !h){ reject(new Error('empty image')); return; }
+      const scale = Math.min(1, BG_MAX_DIM / Math.max(w, h));
+      w = Math.max(1, Math.round(w * scale));
+      h = Math.max(1, Math.round(h * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#0F0C1E'; // PNGs with transparency would otherwise turn black/odd when saved as JPEG
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error('could not encode image')), 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('could not read image')); };
+    img.src = url;
+  });
+}
+
+async function bgLoadAll(){
+  let records = [];
+  try{
+    records = (await bgTx('readonly', store => store.getAll())) || [];
+  }catch(e){
+    console.warn('[Background] IndexedDB unavailable — pictures will only last for this session.', e);
+    bgMemoryOnly = true;
+  }
+  bgImages.forEach(i => URL.revokeObjectURL(i.url));
+  bgImages = records
+    .filter(r => r && r.blob)
+    .sort((a, b) => a.id - b.id)
+    .map(r => ({ id: r.id, key: r.key || ('legacy' + r.id + '_' + r.blob.size), blob: r.blob, url: URL.createObjectURL(r.blob), name: r.name || '' }));
+  bgRefreshAll();
+}
+
+async function bgAddFiles(fileList){
+  const files = Array.from(fileList || []).filter(f => f.type && f.type.startsWith('image/'));
+  if(files.length === 0){ showToast('ไม่พบไฟล์ภาพในที่เลือก', true); return; }
+  const room = BG_MAX_IMAGES - bgImages.length;
+  if(room <= 0){ showToast(`เพิ่มภาพได้สูงสุด ${BG_MAX_IMAGES} ภาพ — ลบภาพเก่าออกก่อน`, true); return; }
+  const take = files.slice(0, room);
+  let added = 0, failed = 0;
+  for(const f of take){
+    try{
+      const blob = await bgResizeToBlob(f);
+      const key = bgNewKey();
+      let id;
+      if(!bgMemoryOnly){
+        try{
+          id = await bgTx('readwrite', store => store.add({ blob, key, name: f.name, addedAt: Date.now() }));
+        }catch(e){
+          console.warn('[Background] Could not save to IndexedDB, keeping in memory only.', e);
+          bgMemoryOnly = true;
+        }
+      }
+      if(bgMemoryOnly) id = --bgMemId;
+      bgImages.push({ id, key, blob, url: URL.createObjectURL(blob), name: f.name });
+      added++;
+    }catch(e){
+      console.warn('[Background] Skipped a file:', f.name, e);
+      failed++;
+    }
+  }
+  bgRefreshAll();
+  if(added > 0) showToast(`เพิ่มภาพพื้นหลัง ${added} ภาพแล้ว` + (take.length < files.length ? ` (เกินจำนวนสูงสุด ${BG_MAX_IMAGES} ภาพ จึงข้ามบางไฟล์)` : ''));
+  if(failed > 0) showToast(`อ่านไฟล์ภาพไม่ได้ ${failed} ไฟล์`, true);
+  if(bgMemoryOnly && added > 0) showToast('เบราว์เซอร์นี้เก็บภาพถาวรไม่ได้ — ภาพจะอยู่จนกว่าจะปิด/รีเฟรชหน้านี้', true);
+}
+
+async function bgRemove(id){
+  const i = bgImages.findIndex(x => x.id === id);
+  if(i < 0) return;
+  const [img] = bgImages.splice(i, 1);
+  URL.revokeObjectURL(img.url);
+  if(id > 0 && !bgMemoryOnly){
+    try{ await bgTx('readwrite', store => store.delete(id)); }
+    catch(e){ console.warn('[Background] Could not delete from IndexedDB', e); }
+  }
+  bgRefreshAll();
+}
+
+async function bgClearAll(){
+  if(bgImages.length === 0) return;
+  if(!confirm('ลบภาพพื้นหลังทั้งหมด? จะกลับไปใช้หน้าจอเริ่มต้น')) return;
+  bgImages.forEach(i => URL.revokeObjectURL(i.url));
+  bgImages = [];
+  if(!bgMemoryOnly){
+    try{ await bgTx('readwrite', store => store.clear()); }
+    catch(e){ console.warn('[Background] Could not clear IndexedDB', e); }
+  }
+  bgRefreshAll();
+}
+
+/* ---- Sending the pictures to Screen 2 ----
+   Screen 2 can't read this device's storage, so pictures go over the existing PeerJS connection. To keep this
+   from ever getting in the way of normal control messages (skip, state updates, ...), only a tiny list of
+   picture keys is pushed on change (BG_SYNC); Screen 2 asks for just the ones it doesn't already hold
+   (BG_NEED), and they're sent one at a time, waiting for the connection's send buffer to drain in between. */
+function bgNewKey(){
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+function bgBlobToArrayBuffer(blob){
+  if(blob.arrayBuffer) return blob.arrayBuffer();
+  return new Promise((resolve, reject) => { // older browsers without Blob.arrayBuffer()
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(fr.error);
+    fr.readAsArrayBuffer(blob);
+  });
+}
+function bgSyncPayload(){
+  return { type: 'BG_SYNC', keys: bgImages.map(i => i.key), intervalSec: bgIntervalSec, order: bgOrder };
+}
+function bgSendSync(conn){
+  if(conn && conn.open) conn.send(bgSyncPayload());
+}
+function bgBroadcastSync(){
+  connections.forEach(c => { if(c._isScreen2) bgSendSync(c); });
+}
+function bgConnBusy(conn){
+  try{
+    if(conn.bufferSize > 0) return true; // PeerJS's own queue of not-yet-handed-off chunks
+    const dc = conn.dataChannel;
+    return !!(dc && dc.bufferedAmount > 262144); // plus what's already inside the browser's channel buffer
+  }catch(e){ return false; }
+}
+function bgHandleNeed(conn, keys){
+  if(!conn._isScreen2 || !Array.isArray(keys)) return;
+  bgServeImages(conn, keys.filter(k => typeof k === 'string').slice(0, BG_MAX_IMAGES));
+}
+function bgServeImages(conn, keys){
+  conn._bgSent = conn._bgSent || new Set();   // the channel is reliable + ordered, so once sent it WILL arrive: never send twice
+  conn._bgQueue = conn._bgQueue || [];
+  keys.forEach(k => { if(!conn._bgSent.has(k) && !conn._bgQueue.includes(k)) conn._bgQueue.push(k); });
+  if(conn._bgPumping) return;
+  conn._bgPumping = true;
+  (async () => {
+    try{
+      while(conn._bgQueue.length && conn.open){
+        const key = conn._bgQueue.shift();
+        const img = bgImages.find(i => i.key === key);
+        if(!img) continue; // deleted while it was waiting in the queue
+        const data = await bgBlobToArrayBuffer(img.blob);
+        if(!conn.open) break;
+        conn._bgSent.add(key);
+        conn.send({ type: 'BG_IMAGE', key, mime: img.blob.type || 'image/jpeg', data });
+        let waited = 0; // let this picture clear the pipe before the next, so control messages stay snappy
+        while(conn.open && bgConnBusy(conn) && waited < 30000){
+          await new Promise(r => setTimeout(r, 100));
+          waited += 100;
+        }
+      }
+    }catch(e){
+      console.warn('[Background] Sending a picture to Screen 2 failed', e);
+    }finally{
+      conn._bgPumping = false;
+    }
+  })();
+}
+
+function bgIdleVisible(){
+  return document.getElementById('idle-screen').style.display !== 'none';
+}
+
+function bgShowIndex(i){
+  const a = document.getElementById('idle-bg-a');
+  const b = document.getElementById('idle-bg-b');
+  const next = bgShowingA ? b : a;
+  const prev = bgShowingA ? a : b;
+  next.style.backgroundImage = `url("${bgImages[i].url}")`;
+  next.classList.add('visible');
+  prev.classList.remove('visible');
+  bgShowingA = !bgShowingA;
+  bgIndex = i;
+}
+function bgNextIndex(){
+  const n = bgImages.length;
+  if(n <= 1) return 0;
+  if(bgOrder === 'random'){
+    let r;
+    do{ r = Math.floor(Math.random() * n); }while(r === bgIndex);
+    return r;
+  }
+  return (bgIndex + 1) % n;
+}
+function bgAdvance(){
+  if(bgImages.length === 0 || !bgIdleVisible()) return;
+  bgShowIndex(bgNextIndex());
+}
+
+// Idempotent on purpose — renderNowPlaying() calls this on every render, so it must only act on real changes.
+function syncIdleSlideshow(){
+  const idle = document.getElementById('idle-screen');
+  const has = bgImages.length > 0;
+  idle.classList.toggle('has-custom-bg', has);
+  const shouldRun = has && bgIdleVisible();
+  if(!shouldRun){
+    if(bgTimer){ clearInterval(bgTimer); bgTimer = null; }
+    return;
+  }
+  if(bgIndex < 0 || bgIndex >= bgImages.length){
+    bgShowIndex(bgOrder === 'random' ? Math.floor(Math.random() * bgImages.length) : 0);
+  }
+  if(bgImages.length > 1){
+    if(!bgTimer) bgTimer = setInterval(bgAdvance, bgIntervalSec * 1000);
+  } else if(bgTimer){
+    clearInterval(bgTimer); bgTimer = null;
+  }
+}
+
+function bgRenderThumbs(){
+  const wrap = document.getElementById('bg-thumbs');
+  wrap.innerHTML = '';
+  bgImages.forEach(img => {
+    const d = document.createElement('div');
+    d.className = 'bg-thumb';
+    const im = document.createElement('img');
+    im.src = img.url; im.alt = '';
+    const del = document.createElement('button');
+    del.type = 'button'; del.textContent = '✕'; del.title = 'ลบภาพนี้';
+    del.onclick = () => bgRemove(img.id);
+    d.appendChild(im); d.appendChild(del);
+    wrap.appendChild(d);
+  });
+  const status = document.getElementById('bg-status');
+  if(bgImages.length === 0){
+    status.textContent = 'ยังไม่ได้เพิ่มภาพ — ใช้หน้าจอเริ่มต้น';
+  } else {
+    status.textContent = `มี ${bgImages.length}/${BG_MAX_IMAGES} ภาพ` + (bgImages.length > 1 ? ' — เปลี่ยนภาพแบบสไลด์โชว์' : '') + (bgMemoryOnly ? ' (ชั่วคราว: จะหายเมื่อรีเฟรชหน้านี้)' : '');
+  }
+  document.getElementById('btn-bg-clear').style.display = bgImages.length > 0 ? '' : 'none';
+}
+
+// Any change to the picture set (or the timing) starts the slideshow over cleanly.
+function bgRefreshAll(){
+  if(bgTimer){ clearInterval(bgTimer); bgTimer = null; }
+  bgIndex = -1;
+  bgShowingA = true;
+  ['idle-bg-a', 'idle-bg-b'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('visible');
+    el.style.backgroundImage = '';
+  });
+  bgRenderThumbs();
+  syncIdleSlideshow();
+  bgBroadcastSync();
+}
+
+document.getElementById('btn-bg-add').onclick = () => document.getElementById('bg-file-input').click();
+document.getElementById('bg-file-input').addEventListener('change', async (e) => {
+  const files = e.target.files;
+  if(files && files.length) await bgAddFiles(files);
+  e.target.value = ''; // so choosing the same file again later still triggers a change
+});
+document.getElementById('btn-bg-clear').onclick = bgClearAll;
+document.getElementById('bg-interval-select').value = String(bgIntervalSec);
+document.getElementById('bg-interval-select').addEventListener('change', (e) => {
+  bgIntervalSec = parseInt(e.target.value, 10);
+  localStorage.setItem('sriKaraoke_bgInterval', String(bgIntervalSec));
+  if(bgTimer){ clearInterval(bgTimer); bgTimer = null; } // restart the timer with the new interval
+  syncIdleSlideshow();
+  bgBroadcastSync();
+});
+document.getElementById('bg-order-select').value = bgOrder;
+document.getElementById('bg-order-select').addEventListener('change', (e) => {
+  bgOrder = e.target.value === 'random' ? 'random' : 'seq';
+  localStorage.setItem('sriKaraoke_bgOrder', bgOrder);
+  bgBroadcastSync();
+});
+bgLoadAll();
+
 /* ---------------- App-level fullscreen (the whole app UI, not YouTube's own fullscreen) ---------------- */
 function isFullscreen(){
   return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
@@ -2825,6 +3420,7 @@ if(state.screen2Enabled){
   document.getElementById('btn-screen2-toggle').textContent = 'เปิด';
   document.getElementById('btn-screen2-toggle').classList.add('accent');
   document.getElementById('audio-output-row').style.display = 'flex';
+  document.getElementById('audio-latency-row').style.display = 'flex';
   document.getElementById('btn-audio-output-toggle').textContent = state.audioOutput === 'screen2' ? 'จอที่ 2' : 'จอหลัก';
 }
 // Same for the scoring-system toggle (button defaults to "เปิด"/accent in the HTML, so only

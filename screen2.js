@@ -65,7 +65,8 @@ function s2BuildLyricLineWords(container, line){
 }
 function renderS2Mp3Lyrics(){
   if(!s2Mp3Data || !s2Mp3Data.lines || document.getElementById('mp3-now-playing').style.display === 'none') return;
-  const curMs = getS2EstimatedTime() * 1000;
+  // The host's sound reaches this screen a moment late, so the highlight is held back by the same amount
+  const curMs = getS2EstimatedTime() * 1000 - ((s2StreamActive && currentAudioOutput === 'screen2') ? s2AudioLatencyMs : 0);
   const lines = s2Mp3Data.lines;
   let idx = -1;
   for(let i = 0; i < lines.length; i++){
@@ -116,12 +117,24 @@ function connectToRoom(roomId, pin, isReconnect){
   if(!isReconnect) document.getElementById('connect-status').textContent = 'กำลังเชื่อมต่อ…';
   if(peer){ try{ peer.destroy(); }catch(e){} }
   peer = new Peer(undefined, { config: ICE_CONFIG });
+  s2StreamCall = null; detachStreamAudio(); // a fresh Peer means any earlier feed is gone
+  // The host sends a local file's sound here as a one-way audio call whenever sound is routed to this screen.
+  peer.on('call', (call) => {
+    if(call.peer !== currentRoomId){ try{ call.close(); }catch(e){} return; } // only the host (its peer id is the room id) may send sound
+    if(s2StreamCall && s2StreamCall !== call){ try{ s2StreamCall.close(); }catch(e){} }
+    s2StreamCall = call;
+    call.answer(undefined, { sdpTransform: opusStereoSdp }); // receive only; ask for stereo
+    call.on('stream', (stream) => attachStreamAudio(stream));
+    const gone = () => { if(s2StreamCall === call){ s2StreamCall = null; detachStreamAudio(); } };
+    call.on('close', gone);
+    call.on('error', gone);
+  });
   peer.on('open', () => {
     conn = peer.connect(roomId, { reliable: true });
     conn.on('open', () => {
       // "screen2" is just a plain guest join — it never sends ADD_SONG/REMOVE_SONG/etc.,
       // so it needs no special permission tier on the host side at all.
-      conn.send({ type: 'JOIN', pin: currentPin, nickname: 'จอที่ 2' });
+      conn.send({ type: 'JOIN', pin: currentPin, nickname: 'จอที่ 2', kind: 'screen2' });
       document.getElementById('connect-status').textContent = 'กำลังตรวจสอบห้อง…';
     });
     conn.on('data', handleHostMessage);
@@ -214,6 +227,7 @@ function handleHostMessage(msg){
     return;
   }
   if(msg.type === 'AUDIO_OUTPUT'){
+    if(typeof msg.latencyMs === 'number' && msg.latencyMs >= 0 && msg.latencyMs <= 2000) s2AudioLatencyMs = msg.latencyMs;
     applyAudioFromHost(msg.output, msg.volume, msg.muted);
     return;
   }
@@ -225,6 +239,8 @@ function handleHostMessage(msg){
     playSoundEffectOnScreen2(msg.file);
     return;
   }
+  if(msg.type === 'BG_SYNC'){ s2BgOnSync(msg); return; }
+  if(msg.type === 'BG_IMAGE'){ s2BgOnImage(msg); return; }
   if(msg.type === 'EMOJI_REACTION'){
     showEmojiReaction(msg.emoji);
     return;
@@ -259,20 +275,73 @@ function playSoundEffectOnScreen2(file){
 // this page to become the audio source instead — volume/mute here then mirror the host's controls.
 let pendingAudioState = null;
 let currentAudioOutput = 'screen1', currentAudioVolume = 100, currentAudioMuted = false;
+let s2AudioLatencyMs = 250;   // how late the streamed sound arrives (set on the host) — holds MP3 lyrics back to match
+let s2StreamCall = null;      // the host's live audio feed for local files (see peer.on('call') below)
+let s2StreamActive = false;   // true while that feed is attached to the <audio> element
 let isLoadingSong = false;
+// Same Opus-stereo SDP tweak as on the host (the two pages share no code): WebRTC sends Opus as mono unless
+// the SDP asks for stereo, which would collapse Stereo mode to mono here.
+function opusStereoSdp(sdp){
+  const m = /a=rtpmap:(\d+) opus\/48000\/2/i.exec(sdp);
+  if(!m) return sdp;
+  const pt = m[1];
+  const extra = 'stereo=1;sprop-stereo=1;maxaveragebitrate=128000';
+  const fmtp = new RegExp('(a=fmtp:' + pt + ' )([^\\r\\n]*)');
+  if(fmtp.test(sdp)){
+    return sdp.replace(fmtp, (all, head, params) => /(^|;)stereo=/.test(params) ? all : head + params + ';' + extra);
+  }
+  return sdp.replace(m[0], m[0] + '\r\na=fmtp:' + pt + ' ' + extra);
+}
+
+// The streamed local-file sound plays in its own <audio> element; the host's volume / mute / output choice
+// (the same AUDIO_OUTPUT message that drives the YouTube player here) controls it.
+function applyStreamAudioLevel(){
+  const el = document.getElementById('s2-stream-audio');
+  if(!el) return;
+  const active = currentAudioOutput === 'screen2' && !currentAudioMuted;
+  el.muted = !active;
+  el.volume = active ? Math.max(0, Math.min(1, currentAudioVolume / 100)) : 0;
+}
+function attachStreamAudio(stream){
+  const el = document.getElementById('s2-stream-audio');
+  if(!el) return;
+  s2StreamActive = true;
+  el.srcObject = stream;
+  applyStreamAudioLevel();
+  const p = el.play();
+  if(p && p.catch) p.catch(() => { document.getElementById('s2-audio-unlock').style.display = 'block'; }); // browser wants a tap first
+}
+function detachStreamAudio(){
+  s2StreamActive = false;
+  const el = document.getElementById('s2-stream-audio');
+  if(el){ try{ el.pause(); }catch(e){} el.srcObject = null; }
+  const banner = document.getElementById('s2-audio-unlock');
+  if(banner) banner.style.display = 'none';
+}
+function tryUnlockStreamAudio(){
+  const el = document.getElementById('s2-stream-audio');
+  if(!s2StreamActive || !el || !el.paused) return;
+  const p = el.play();
+  const hide = () => { document.getElementById('s2-audio-unlock').style.display = 'none'; };
+  if(p && p.then) p.then(hide).catch(() => {}); else hide();
+}
+document.addEventListener('click', tryUnlockStreamAudio);
+document.addEventListener('touchstart', tryUnlockStreamAudio, { passive: true });
+
 function applyAudioFromHost(output, volume, muted){
-  console.log('[Audio Debug] Screen 2 applyAudioFromHost called. output:', output, '| volume:', volume, '| muted:', muted, '| ytReady:', ytReady, '| ytPlayer exists:', !!ytPlayer, '| isLoadingSong:', isLoadingSong);
+  console.debug('[Audio Debug] Screen 2 applyAudioFromHost called. output:', output, '| volume:', volume, '| muted:', muted, '| ytReady:', ytReady, '| ytPlayer exists:', !!ytPlayer, '| isLoadingSong:', isLoadingSong);
   currentAudioOutput = output;
   currentAudioVolume = typeof volume === 'number' ? volume : 100;
   currentAudioMuted = !!muted;
+  applyStreamAudioLevel(); // independent of the YouTube player, so it must not wait for (or be skipped by) the check below
   if(!ytReady || !ytPlayer){ console.warn('[Audio Debug] Screen 2 YT player not ready — storing as pending.'); pendingAudioState = { output, volume, muted }; return; }
   try{
     if(output === 'screen2' && !isLoadingSong){
-      console.log('[Audio Debug] Screen 2 unmuting/setting volume:', currentAudioMuted ? 0 : currentAudioVolume);
+      console.debug('[Audio Debug] Screen 2 unmuting/setting volume:', currentAudioMuted ? 0 : currentAudioVolume);
       ytPlayer.setVolume(currentAudioMuted ? 0 : currentAudioVolume);
       if(currentAudioMuted) ytPlayer.mute(); else ytPlayer.unMute();
     } else {
-      console.log('[Audio Debug] Screen 2 muting (output is screen1, or currently loading a song).');
+      console.debug('[Audio Debug] Screen 2 muting (output is screen1, or currently loading a song).');
       ytPlayer.mute();
       ytPlayer.setVolume(0);
     }
@@ -405,14 +474,14 @@ function onYouTubeIframeAPIReady(){
     events: {
       onReady: () => {
         ytReady = true;
-        console.log('[S2 Debug] Screen 2 YouTube player onReady fired.');
+        console.debug('[S2 Debug] Screen 2 YouTube player onReady fired.');
         // Screen 2 is a silent visual display by default (the host is the audio source), so this
         // player is muted on purpose unless the host has switched audio output to Screen 2.
         if(pendingAudioState) applyAudioFromHost(pendingAudioState.output, pendingAudioState.volume, pendingAudioState.muted);
         else { ytPlayer.mute(); ytPlayer.setVolume(0); }
       },
       onStateChange: (e) => {
-        console.log('[S2 Debug] Screen 2 onStateChange fired, state:', e.data, '(PLAYING=', YT.PlayerState.PLAYING, ')');
+        console.debug('[S2 Debug] Screen 2 onStateChange fired, state:', e.data, '(PLAYING=', YT.PlayerState.PLAYING, ')');
         if(e.data === YT.PlayerState.PLAYING) hideLoadingOverlay();
       },
       onError: (e) => {
@@ -425,7 +494,7 @@ window.onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
 
 function applyVideoState(currentId, currentTime){
   const song = myQueue.find(s => s.id === currentId);
-  console.log('[S2 Debug] applyVideoState called. currentId:', currentId, '| song found:', !!song, '| source:', song?.source, '| ytReady:', ytReady, '| ytPlayer exists:', !!ytPlayer, '| lastLoadedVideoId:', lastLoadedVideoId);
+  console.debug('[S2 Debug] applyVideoState called. currentId:', currentId, '| song found:', !!song, '| source:', song?.source, '| ytReady:', ytReady, '| ytPlayer exists:', !!ytPlayer, '| lastLoadedVideoId:', lastLoadedVideoId);
   if(!song || song.source === 'local'){
     // Local files only exist on the host device's own file system — Screen 2 has no way to read or
     // play them, so it just clears its player and shows a placeholder (handled in renderDisplay).
@@ -436,7 +505,7 @@ function applyVideoState(currentId, currentTime){
   }
   if(!ytReady || !ytPlayer){ console.warn('[S2 Debug] YT player not ready on Screen 2 — cannot load video.'); return; }
   if(song.videoId !== lastLoadedVideoId){
-    console.log('[S2 Debug] Loading new video on Screen 2:', song.videoId);
+    console.debug('[S2 Debug] Loading new video on Screen 2:', song.videoId);
     lastLoadedVideoId = song.videoId;
     showLoadingOverlay(song);
     try{
@@ -448,7 +517,7 @@ function applyVideoState(currentId, currentTime){
       console.error('[S2 Debug] loadVideoById threw an error:', e);
     }
   } else {
-    console.log('[S2 Debug] Same videoId as already loaded — skipping reload.');
+    console.debug('[S2 Debug] Same videoId as already loaded — skipping reload.');
   }
 }
 
@@ -475,6 +544,91 @@ function updateNowPlayingMarquee(song){
   textEl.style.animation = `np-marquee-rtl ${duration}s linear infinite`;
 }
 
+/* ---------------- Idle background pictures (sent over by the host) ----------------
+   Same look as the host's own empty-queue screen. The host only pushes a small list of picture keys
+   (BG_SYNC); this page asks for just the ones it doesn't already have (BG_NEED) and the host sends them
+   one by one (BG_IMAGE). Timing and order come from the host's settings. Kept in memory only, so a
+   reload of this page simply fetches them again. */
+const s2Bg = { keys: [], urls: new Map(), intervalSec: 10, order: 'seq', active: false, currentKey: null, timer: null, showingA: true };
+function s2BgAvailable(){ return s2Bg.keys.filter(k => s2Bg.urls.has(k)); }
+function s2BgShow(key){
+  const a = document.getElementById('d-idle-bg-a');
+  const b = document.getElementById('d-idle-bg-b');
+  const next = s2Bg.showingA ? b : a;
+  const prev = s2Bg.showingA ? a : b;
+  next.style.backgroundImage = `url("${s2Bg.urls.get(key)}")`;
+  next.classList.add('visible');
+  prev.classList.remove('visible');
+  s2Bg.showingA = !s2Bg.showingA;
+  s2Bg.currentKey = key;
+}
+function s2BgAdvance(){
+  if(!s2Bg.active) return;
+  const avail = s2BgAvailable();
+  if(avail.length < 2) return;
+  const cur = avail.indexOf(s2Bg.currentKey);
+  let next;
+  if(s2Bg.order === 'random'){
+    do{ next = Math.floor(Math.random() * avail.length); }while(next === cur);
+  } else {
+    next = (cur + 1) % avail.length;
+  }
+  s2BgShow(avail[next]);
+}
+// Idempotent — called every second from renderDisplay() and after every message that changes anything.
+function s2BgSync(){
+  const idle = document.getElementById('d-idle');
+  const avail = s2BgAvailable();
+  const show = s2Bg.active && avail.length > 0;
+  idle.classList.toggle('has-custom-bg', show);
+  if(avail.length === 0 && s2Bg.currentKey){
+    s2Bg.currentKey = null;
+    ['d-idle-bg-a', 'd-idle-bg-b'].forEach(id => {
+      const el = document.getElementById(id);
+      el.classList.remove('visible');
+      el.style.backgroundImage = '';
+    });
+  }
+  if(!show){
+    if(s2Bg.timer){ clearInterval(s2Bg.timer); s2Bg.timer = null; }
+    return;
+  }
+  if(!s2Bg.currentKey || !avail.includes(s2Bg.currentKey)){
+    s2BgShow(s2Bg.order === 'random' ? avail[Math.floor(Math.random() * avail.length)] : avail[0]);
+  }
+  if(avail.length > 1){
+    if(!s2Bg.timer) s2Bg.timer = setInterval(s2BgAdvance, s2Bg.intervalSec * 1000);
+  } else if(s2Bg.timer){
+    clearInterval(s2Bg.timer); s2Bg.timer = null;
+  }
+}
+function s2BgSetActive(active){
+  s2Bg.active = !!active;
+  s2BgSync();
+}
+function s2BgOnSync(msg){
+  const keys = Array.isArray(msg.keys) ? msg.keys.filter(k => typeof k === 'string').slice(0, 40) : [];
+  const iv = Number(msg.intervalSec);
+  const newInterval = (iv >= 3 && iv <= 3600) ? iv : 10;
+  if(newInterval !== s2Bg.intervalSec && s2Bg.timer){ clearInterval(s2Bg.timer); s2Bg.timer = null; } // restart with the new timing
+  s2Bg.keys = keys;
+  s2Bg.intervalSec = newInterval;
+  s2Bg.order = msg.order === 'random' ? 'random' : 'seq';
+  for(const [k, url] of [...s2Bg.urls]){ // forget pictures the host no longer has
+    if(!keys.includes(k)){ URL.revokeObjectURL(url); s2Bg.urls.delete(k); }
+  }
+  const need = keys.filter(k => !s2Bg.urls.has(k));
+  if(need.length && conn && conn.open) conn.send({ type: 'BG_NEED', keys: need });
+  s2BgSync();
+}
+function s2BgOnImage(msg){
+  if(typeof msg.key !== 'string' || !msg.data) return;
+  if(!s2Bg.keys.includes(msg.key) || s2Bg.urls.has(msg.key)) return; // removed in the meantime, or a duplicate
+  const mime = (typeof msg.mime === 'string' && msg.mime.indexOf('image/') === 0) ? msg.mime : 'image/jpeg';
+  s2Bg.urls.set(msg.key, URL.createObjectURL(new Blob([msg.data], { type: mime })));
+  s2BgSync();
+}
+
 function renderDisplay(){
   const song = myQueue.find(s => s.id === myCurrentId);
   const idle = document.getElementById('d-idle');
@@ -485,6 +639,7 @@ function renderDisplay(){
   const emptyMsg = document.getElementById('d-empty-queue-msg');
 
   if(song) hasEverPlayed = true;
+  s2BgSetActive(!song); // pictures only while the queue is empty — not over a song, nor the "playing on the main screen" note
 
   if(song && song.source === 'local'){
     if(s2Mp3Data && s2Mp3Data.songId === song.id){
