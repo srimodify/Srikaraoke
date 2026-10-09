@@ -19,6 +19,9 @@ const ICE_CONFIG = {
   iceCandidatePoolSize: 10
 };
 
+// A display that is meant to stay on: keep it from dimming / sleeping while this page is open (see wakelock.js).
+if(window.KeepAwake) KeepAwake.start();
+
 let peer = null;
 let conn = null;
 let currentRoomId = null;

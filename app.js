@@ -12,6 +12,22 @@ const STORAGE_APIKEY = 'sriKaraoke_ytApiKey';
 // code. Decoded once at load time below.
 const DEFAULT_API_KEY_B64 = 'QUl6YVN5Qmc1aHBsYXY3SHpJSGZYb0RXbHdaZUVOdlE3bmI1aTZZ';
 const DEFAULT_API_KEY = atob(DEFAULT_API_KEY_B64);
+
+// Keep the screen from dimming / sleeping for as long as the app is open (until "ออกจากระบบ") — see wakelock.js.
+if(window.KeepAwake){
+  KeepAwake.onChange(status => {
+    const el = document.getElementById('wake-status');
+    if(!el) return;
+    const text = {
+      active: '🔆 กันหน้าจอดับ: ทำงานอยู่ — หน้าจอจะไม่พักจนกว่าจะออกจากระบบ',
+      waiting: '🔆 กันหน้าจอดับ: รอเปิดใช้งาน (เบราว์เซอร์ยังไม่อนุญาตในตอนนี้ ระบบจะลองใหม่เอง)',
+      unsupported: '⚠️ เบราว์เซอร์นี้ไม่รองรับการกันหน้าจอดับ (ต้องเปิดผ่าน HTTPS และใช้เบราว์เซอร์รุ่นใหม่) — ให้ตั้งเวลาพักหน้าจอ/ภาพพักหน้าจอของเครื่องหรือทีวีเป็น "ไม่ดับ" เอง'
+    }[status] || '';
+    el.textContent = text;
+    el.style.display = text ? 'block' : 'none';
+  });
+  KeepAwake.start();
+}
 function getApiKey(){
   const stored = localStorage.getItem(STORAGE_APIKEY);
   return stored !== null ? stored : DEFAULT_API_KEY;
@@ -427,6 +443,7 @@ document.getElementById('btn-disclaimer-features').onclick = () => {
   document.getElementById('disclaimer-panel-features').scrollTop = 0;
 };
 document.getElementById('btn-disclaimer-cancel').onclick = () => {
+  try{ if(window.KeepAwake) KeepAwake.stop(); }catch(e){}
   try{ window.close(); }catch(e){}
   setTimeout(() => {
     const modal = document.getElementById('disclaimer-modal');
@@ -3792,6 +3809,7 @@ document.getElementById('btn-fullscreen').onclick = () => {
 });
 
 function performLogout(){
+  try{ if(window.KeepAwake) KeepAwake.stop(); }catch(e){} // logged out: the screen may sleep normally again
   try{ if(peer) peer.destroy(); }catch(e){}
   try{ stopPlayer(); }catch(e){}
   try{ window.close(); }catch(e){}
